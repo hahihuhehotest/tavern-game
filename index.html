@@ -1,0 +1,76 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>酒場経営ゲーム 試作品</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5efe4;
+      color: #30251b;
+    }
+    section {
+      background: white;
+      padding: 16px;
+      margin: 12px 0;
+      border-radius: 12px;
+    }
+    button {
+      padding: 12px;
+      margin: 4px;
+      font-size: 16px;
+      border-radius: 8px;
+      border: 1px solid #b9a58c;
+      background: #fff8ed;
+    }
+  </style>
+</head>
+<body>
+  <h1>酒場経営ゲーム</h1>
+  <p>試作品 0.1</p>
+
+  <section>
+    <h2>酒場の状態</h2>
+    <p>日数：<span id="day">1</span>日目</p>
+    <p>所持金：<span id="money">1000</span> G</p>
+    <p>評判：<span id="reputation">0</span></p>
+  </section>
+
+  <section>
+    <h2>朝の行動</h2>
+    <button onclick="morning('市場')">市場へ行く</button>
+    <button onclick="morning('開拓本部')">開拓本部へ行く</button>
+    <p id="morningResult">今日の行動を選んでください。</p>
+  </section>
+
+  <section>
+    <h2>記録</h2>
+    <div id="log">ゲームを開始しました。</div>
+  </section>
+
+  <script>
+    let day = 1;
+    let money = 1000;
+    let reputation = 0;
+
+    function morning(place) {
+      document.getElementById("morningResult").textContent =
+        place + "で行動しました。";
+
+      document.getElementById("log").textContent =
+        day + "日目： " + place + "で行動しました。";
+
+      money += 100;
+      reputation += 1;
+
+      document.getElementById("money").textContent = money;
+      document.getElementById("reputation").textContent = reputation;
+    }
+  </script>
+</body>
+</html>
