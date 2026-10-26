@@ -14,12 +14,14 @@
       background: #f5efe4;
       color: #30251b;
     }
+
     section {
       background: white;
       padding: 16px;
       margin: 12px 0;
       border-radius: 12px;
     }
+
     button {
       padding: 12px;
       margin: 4px;
@@ -27,25 +29,72 @@
       border-radius: 8px;
       border: 1px solid #b9a58c;
       background: #fff8ed;
+      color: #30251b;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+    }
+
+    .status {
+      font-weight: bold;
+      color: #79552b;
+    }
+
+    #log {
+      white-space: pre-line;
+      line-height: 1.7;
     }
   </style>
 </head>
 <body>
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.1</p>
+  <p>試作品 0.2</p>
 
   <section>
     <h2>酒場の状態</h2>
     <p>日数：<span id="day">1</span>日目</p>
     <p>所持金：<span id="money">1000</span> G</p>
     <p>評判：<span id="reputation">0</span></p>
+    <p>現在の段階：<span id="phase" class="status">朝の行動</span></p>
   </section>
 
-  <section>
+  <section id="morningSection">
     <h2>朝の行動</h2>
-    <button onclick="morning('市場')">市場へ行く</button>
-    <button onclick="morning('開拓本部')">開拓本部へ行く</button>
+    <p>今日の行動を1つ選んでください。</p>
+
+    <button id="marketButton" onclick="morning('市場')">
+      市場へ行く
+    </button>
+
+    <button id="officeButton" onclick="morning('開拓本部')">
+      開拓本部へ行く
+    </button>
+
     <p id="morningResult">今日の行動を選んでください。</p>
+  </section>
+
+  <section id="preparationSection" hidden>
+    <h2>営業準備</h2>
+    <p id="preparationResult">
+      朝の行動が終わりました。酒場の営業準備をしましょう。
+    </p>
+    <p>
+      今後ここに料理・飲み物の設定などを追加します。
+    </p>
+    <button id="openTavernButton" onclick="openTavern()">
+      酒場を営業する
+    </button>
+  </section>
+
+  <section id="tavernSection" hidden>
+    <h2>酒場の営業</h2>
+    <p id="tavernResult">
+      酒場を営業しています。
+    </p>
+    <button onclick="endDay()">
+      1日を終える
+    </button>
   </section>
 
   <section>
@@ -58,19 +107,103 @@
     let money = 1000;
     let reputation = 0;
 
+    // morning: 朝の行動
+    // preparation: 営業準備
+    // tavern: 酒場の営業
+    let phase = "morning";
+
+    function updateStatus() {
+      document.getElementById("day").textContent = day;
+      document.getElementById("money").textContent = money;
+      document.getElementById("reputation").textContent = reputation;
+
+      const phaseNames = {
+        morning: "朝の行動",
+        preparation: "営業準備",
+        tavern: "酒場の営業"
+      };
+
+      document.getElementById("phase").textContent =
+        phaseNames[phase];
+
+      document.getElementById("morningSection").hidden =
+        phase !== "morning";
+
+      document.getElementById("preparationSection").hidden =
+        phase !== "preparation";
+
+      document.getElementById("tavernSection").hidden =
+        phase !== "tavern";
+    }
+
+    function addLog(message) {
+      const log = document.getElementById("log");
+      log.textContent += "\n" + message;
+    }
+
     function morning(place) {
+      // 朝の行動は1日1回だけ
+      if (phase !== "morning") {
+        return;
+      }
+
+      phase = "preparation";
+
       document.getElementById("morningResult").textContent =
         place + "で行動しました。";
 
-      document.getElementById("log").textContent =
-        day + "日目： " + place + "で行動しました。";
-
+      // 試作品用の仮の報酬
       money += 100;
       reputation += 1;
 
-      document.getElementById("money").textContent = money;
-      document.getElementById("reputation").textContent = reputation;
+      document.getElementById("preparationResult").textContent =
+        place + "での行動が終わりました。"
+        + "所持金と評判が少し増えました。"
+        + "次は酒場の営業準備です。";
+
+      addLog(
+        day + "日目：朝の行動「" + place + "」を実行。"
+        + " 所持金 +100G、評判 +1。"
+      );
+
+      updateStatus();
     }
+
+    function openTavern() {
+      if (phase !== "preparation") {
+        return;
+      }
+
+      phase = "tavern";
+
+      document.getElementById("tavernResult").textContent =
+        day + "日目の酒場を営業しています。"
+        + " 今後ここに冒険者との会話や来店イベントを追加します。";
+
+      addLog(day + "日目：酒場の営業を開始。");
+
+      updateStatus();
+    }
+
+    function endDay() {
+      if (phase !== "tavern") {
+        return;
+      }
+
+      addLog(day + "日目：営業を終了。");
+
+      day += 1;
+      phase = "morning";
+
+      document.getElementById("morningResult").textContent =
+        "今日の行動を選んでください。";
+
+      addLog(day + "日目：新しい朝を迎えました。");
+
+      updateStatus();
+    }
+
+    updateStatus();
   </script>
 </body>
 </html>
