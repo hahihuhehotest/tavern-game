@@ -202,7 +202,7 @@
     let phase = "morning";
 
     // 今日の料理・飲み物
-    let today'sMenu = {};
+    let todaysMenu = {};
 
     function updateStatus() {
       document.getElementById("day").textContent = day;
@@ -310,13 +310,13 @@
         day + "日目の酒場を営業しています。";
 
       document.getElementById("activeMenu").textContent =
-        menuToText(today'sMenu);
+        menuToText(todaysMenu);
 
       addLog(
         day + "日目：酒場の営業を開始。"
         + " 料理は「" + today'sMenu.ingredient + "・"
-        + today'sMenu.cooking + "」、飲み物は「"
-        + today'sMenu.drinkType + "系」。"
+        + todaysMenu.cooking + "」、飲み物は「"
+        + todaysMenu.drinkType + "系」。"
       );
 
       updateStatus();
