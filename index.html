@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品</title>
+  <title>酒場経営ゲーム 試作品0.4</title>
   <style>
     body {
       font-family: sans-serif;
@@ -58,6 +58,26 @@
       background: #f9f3e9;
       border-radius: 8px;
       line-height: 1.8;
+      white-space: pre-line;
+    }
+
+    .adventurer {
+      border: 1px solid #dfd0bb;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 12px 0;
+    }
+
+    .adventurer h3 {
+      margin-top: 0;
+    }
+
+    .dialogue {
+      background: #f9f3e9;
+      padding: 10px;
+      border-radius: 8px;
+      line-height: 1.7;
+      white-space: pre-line;
     }
 
     #log {
@@ -72,7 +92,7 @@
 </head>
 <body>
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.3</p>
+  <p>試作品 0.4</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -99,9 +119,7 @@
 
   <section id="preparationSection" hidden>
     <h2>営業準備</h2>
-    <p>
-      今日のお客に出す料理と飲み物を決めましょう。
-    </p>
+    <p>今日のお客に出す料理と飲み物を決めましょう。</p>
 
     <h3>料理の設定</h3>
 
@@ -161,10 +179,6 @@
     <h3>本日のメニュー</h3>
     <div id="menuPreview" class="menu-box"></div>
 
-    <p>
-      選んだ内容は、画面上でいつでも確認できます。
-    </p>
-
     <button onclick="openTavern()">
       このメニューで酒場を営業する
     </button>
@@ -177,12 +191,46 @@
     <h3>本日のメニュー</h3>
     <div id="activeMenu" class="menu-box"></div>
 
-    <p>
-      今後ここに冒険者の来店、会話、料理や飲み物への反応を追加します。
+    <h3>来店した冒険者</h3>
+    <p id="talkCount">会話：0 / 3人</p>
+
+    <div class="adventurer">
+      <h3>レオン</h3>
+      <p>種族：人間</p>
+      <p>様子：討伐の話に興味があるようだ。</p>
+      <button id="talkButton0" onclick="talkTo(0)">
+        レオンと会話する
+      </button>
+      <div id="dialogue0" class="dialogue" hidden></div>
+    </div>
+
+    <div class="adventurer">
+      <h3>ミリア</h3>
+      <p>種族：エルフ</p>
+      <p>様子：採取や植物の話に詳しそうだ。</p>
+      <button id="talkButton1" onclick="talkTo(1)">
+        ミリアと会話する
+      </button>
+      <div id="dialogue1" class="dialogue" hidden></div>
+    </div>
+
+    <div class="adventurer">
+      <h3>ガルム</h3>
+      <p>種族：ドワーフ</p>
+      <p>様子：酒や装備の話をしたそうだ。</p>
+      <button id="talkButton2" onclick="talkTo(2)">
+        ガルムと会話する
+      </button>
+      <div id="dialogue2" class="dialogue" hidden></div>
+    </div>
+
+    <p id="allTalkedMessage" hidden>
+      今日の冒険者3人との会話が終わりました。
+      これで営業を終了できます。
     </p>
 
-    <button onclick="endDay()">
-      1日を終える
+    <button id="endDayButton" onclick="endDay()" disabled>
+      1日を終える（会話3人完了後）
     </button>
   </section>
 
@@ -195,14 +243,36 @@
     let day = 1;
     let money = 1000;
     let reputation = 0;
-
-    // morning: 朝の行動
-    // preparation: 営業準備
-    // tavern: 酒場の営業
     let phase = "morning";
-
-    // 今日の料理・飲み物
     let todaysMenu = {};
+    let talkCount = 0;
+
+    const adventurers = [
+      {
+        name: "レオン",
+        race: "人間",
+        purpose: "討伐依頼",
+        dialogue:
+          "レオン「最近、北の街道に魔物が出るらしい。" +
+          "討伐依頼があれば受けてみたいな。」"
+      },
+      {
+        name: "ミリア",
+        race: "エルフ",
+        purpose: "採取・植物",
+        dialogue:
+          "ミリア「森の奥で珍しい薬草を見つけたの。" +
+          "採取の依頼があれば、ぜひ教えてほしいわ。」"
+      },
+      {
+        name: "ガルム",
+        race: "ドワーフ",
+        purpose: "酒・装備",
+        dialogue:
+          "ガルム「いい酒と頑丈な装備が欲しいな。" +
+          "装備の材料になる鉱石の話も歓迎だ。」"
+      }
+    ];
 
     function updateStatus() {
       document.getElementById("day").textContent = day;
@@ -243,15 +313,13 @@
       document.getElementById("morningResult").textContent =
         place + "で行動しました。";
 
-      // 試作品用の仮の報酬
+      // 仮の報酬
       money += 100;
       reputation += 1;
 
-      document.getElementById("preparationResult");
-
       addLog(
-        day + "日目：朝の行動「" + place + "」を実行。"
-        + " 所持金 +100G、評判 +1。"
+        day + "日目：朝の行動「" + place + "」。" +
+        " 所持金 +100G、評判 +1。"
       );
 
       updateMenuPreview();
@@ -278,19 +346,20 @@
     }
 
     function menuToText(menu) {
-      return "料理\n"
-        + "食材：" + menu.ingredient + "\n"
-        + "味の重さ：" + menu.richness + "\n"
-        + "調理法：" + menu.cooking + "\n"
-        + "味付け：" + menu.flavor + "\n\n"
-        + "飲み物\n"
-        + "種類：" + menu.drinkType + "\n"
-        + "アルコール度数：" + menu.alcohol + "\n"
-        + "香り：" + menu.smell;
+      return "料理\n" +
+        "食材：" + menu.ingredient + "\n" +
+        "味の重さ：" + menu.richness + "\n" +
+        "調理法：" + menu.cooking + "\n" +
+        "味付け：" + menu.flavor + "\n\n" +
+        "飲み物\n" +
+        "種類：" + menu.drinkType + "系\n" +
+        "アルコール度数：" + menu.alcohol + "\n" +
+        "香り：" + menu.smell;
     }
 
     function updateMenuPreview() {
       const preview = document.getElementById("menuPreview");
+
       if (preview) {
         preview.textContent = menuToText(getMenu());
       }
@@ -301,25 +370,80 @@
         return;
       }
 
-      // 営業開始時点のメニューを確定
       todaysMenu = getMenu();
-
       phase = "tavern";
+      talkCount = 0;
+
+      // 新しい営業日の会話状態を初期化
+      for (let i = 0; i < adventurers.length; i++) {
+        const button = document.getElementById("talkButton" + i);
+        const dialogue = document.getElementById("dialogue" + i);
+
+        button.disabled = false;
+        button.textContent =
+          adventurers[i].name + "と会話する";
+
+        dialogue.hidden = true;
+        dialogue.textContent = "";
+      }
 
       document.getElementById("tavernResult").textContent =
-        day + "日目の酒場を営業しています。";
+        day + "日目の酒場を営業しています。" +
+        " 冒険者3人と会話しましょう。";
 
       document.getElementById("activeMenu").textContent =
         menuToText(todaysMenu);
 
-      addLog(
-        day + "日目：酒場の営業を開始。"
-        + " 料理は「" + todaysMenu.ingredient + "・"
-        + todaysMenu.cooking + "」、飲み物は「"
-        + todaysMenu.drinkType + "系」。"
-      );
+      document.getElementById("talkCount").textContent =
+        "会話：0 / 3人";
+
+      document.getElementById("allTalkedMessage").hidden = true;
+
+      document.getElementById("endDayButton").disabled = true;
+      document.getElementById("endDayButton").textContent =
+        "1日を終える（会話3人完了後）";
+
+      addLog(day + "日目：酒場の営業を開始。");
 
       updateStatus();
+    }
+
+    function talkTo(index) {
+      if (phase !== "tavern") {
+        return;
+      }
+
+      const adventurer = adventurers[index];
+      const button = document.getElementById("talkButton" + index);
+      const dialogue = document.getElementById("dialogue" + index);
+
+      // 同じ冒険者との会話は1日1回
+      if (button.disabled) {
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = adventurer.name + "（会話済み）";
+
+      dialogue.textContent = adventurer.dialogue;
+      dialogue.hidden = false;
+
+      talkCount++;
+
+      document.getElementById("talkCount").textContent =
+        "会話：" + talkCount + " / 3人";
+
+      addLog(
+        day + "日目：" + adventurer.name +
+        "と会話。話題：" + adventurer.purpose + "。"
+      );
+
+      if (talkCount === adventurers.length) {
+        document.getElementById("allTalkedMessage").hidden = false;
+        document.getElementById("endDayButton").disabled = false;
+        document.getElementById("endDayButton").textContent =
+          "1日を終える";
+      }
     }
 
     function endDay() {
@@ -327,10 +451,15 @@
         return;
       }
 
+      if (talkCount < adventurers.length) {
+        return;
+      }
+
       addLog(day + "日目：営業を終了。");
 
-      day += 1;
+      day++;
       phase = "morning";
+      talkCount = 0;
 
       document.getElementById("morningResult").textContent =
         "今日の行動を選んでください。";
@@ -340,7 +469,6 @@
       updateStatus();
     }
 
-    // 料理・飲み物を変更したら、メニュー表示も更新
     const menuInputs = [
       "foodIngredient",
       "foodRichness",
@@ -358,7 +486,6 @@
       );
     });
 
-    // 初期表示
     updateMenuPreview();
     updateStatus();
   </script>
