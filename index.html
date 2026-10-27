@@ -302,7 +302,7 @@
       }
 
       // 営業開始時点のメニューを確定
-      today'sMenu = getMenu();
+      todaysMenu = getMenu();
 
       phase = "tavern";
 
@@ -314,7 +314,7 @@
 
       addLog(
         day + "日目：酒場の営業を開始。"
-        + " 料理は「" + today'sMenu.ingredient + "・"
+        + " 料理は「" + todaysMenu.ingredient + "・"
         + todaysMenu.cooking + "」、飲み物は「"
         + todaysMenu.drinkType + "系」。"
       );
