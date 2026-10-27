@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.5</title>
+  <title>酒場経営ゲーム 試作品0.6</title>
   <style>
     body {
       font-family: sans-serif;
@@ -99,7 +99,7 @@
 </head>
 <body>
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.5</p>
+  <p>試作品 0.6</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -112,24 +112,14 @@
   <section id="loadError" hidden>
     <h2>データの読み込みに失敗しました</h2>
     <p id="loadErrorMessage" class="error"></p>
-    <p>
-      data/adventurers.json が存在するか、
-      ファイル名とJSONの内容が正しいか確認してください。
-    </p>
+    <p>data/adventurers.json のファイル名と内容を確認してください。</p>
   </section>
 
   <section id="morningSection" hidden>
     <h2>朝の行動</h2>
     <p>今日の行動を1つ選んでください。</p>
-
-    <button onclick="morning('市場')">
-      市場へ行く
-    </button>
-
-    <button onclick="morning('開拓本部')">
-      開拓本部へ行く
-    </button>
-
+    <button onclick="morning('市場')">市場へ行く</button>
+    <button onclick="morning('開拓本部')">開拓本部へ行く</button>
     <p id="morningResult">今日の行動を選んでください。</p>
   </section>
 
@@ -195,9 +185,7 @@
     <h3>本日のメニュー</h3>
     <div id="menuPreview" class="menu-box"></div>
 
-    <button onclick="openTavern()">
-      このメニューで酒場を営業する
-    </button>
+    <button onclick="openTavern()">このメニューで酒場を営業する</button>
   </section>
 
   <section id="tavernSection" hidden>
@@ -208,17 +196,15 @@
     <div id="activeMenu" class="menu-box"></div>
 
     <h3>来店した冒険者</h3>
-    <p id="talkCount">会話：0 / 3人</p>
-
+    <p id="talkCount">会話：0人</p>
     <div id="adventurerList"></div>
 
     <p id="allTalkedMessage" hidden>
-      今日の冒険者3人との会話が終わりました。
-      これで営業を終了できます。
+      今日の冒険者全員との会話が終わりました。営業を終了できます。
     </p>
 
     <button id="endDayButton" onclick="endDay()" disabled>
-      1日を終える（会話3人完了後）
+      1日を終える（会話完了後）
     </button>
   </section>
 
@@ -236,39 +222,12 @@
     let talkCount = 0;
     let adventurers = [];
 
-    // 会話内容は現在の仮設定。
-    // 将来的には会話もデータファイルに分離する。
-    const adventurerDetails = {
-      leon: {
-        purpose: "討伐依頼",
-        impression: "討伐の話に興味があるようだ。",
-        dialogue:
-          "レオン「最近、北の街道に魔物が出るらしい。" +
-          "討伐依頼があれば受けてみたいな。」"
-      },
-      milia: {
-        purpose: "採取・植物",
-        impression: "採取や植物の話に詳しそうだ。",
-        dialogue:
-          "ミリア「森の奥で珍しい薬草を見つけたの。" +
-          "採取の依頼があれば、ぜひ教えてほしいわ。」"
-      },
-      garm: {
-        purpose: "酒・装備",
-        impression: "酒や装備の話をしたそうだ。",
-        dialogue:
-          "ガルム「いい酒と頑丈な装備が欲しいな。" +
-          "装備の材料になる鉱石の話も歓迎だ。」"
-      }
-    };
-
     async function loadAdventurers() {
       const response = await fetch("./data/adventurers.json");
 
       if (!response.ok) {
         throw new Error(
-          "冒険者データを取得できませんでした。" +
-          " HTTP " + response.status
+          "冒険者データを取得できませんでした。HTTP " + response.status
         );
       }
 
@@ -284,39 +243,24 @@
         if (
           !adventurer.id ||
           !adventurer.name ||
-          !adventurer.race
+          !adventurer.race ||
+          !adventurer.purpose ||
+          !adventurer.impression ||
+          !adventurer.dialogue
         ) {
           throw new Error(
-            "冒険者データには id、name、race が必要です。"
+            "各冒険者に id、name、race、purpose、impression、dialogue が必要です。"
           );
         }
 
         if (ids.has(adventurer.id)) {
-          throw new Error(
-            "冒険者IDが重複しています：" + adventurer.id
-          );
+          throw new Error("冒険者IDが重複しています：" + adventurer.id);
         }
 
         ids.add(adventurer.id);
       });
 
-      adventurers = data.map(function(adventurer) {
-        const details = adventurerDetails[adventurer.id] || {};
-
-        return {
-          ...adventurer,
-          purpose: adventurer.purpose || details.purpose || "日常の話",
-          impression:
-            adventurer.impression ||
-            details.impression ||
-            "酒場でくつろいでいるようだ。",
-          dialogue:
-            adventurer.dialogue ||
-            details.dialogue ||
-            adventurer.name +
-            "「こんにちは。今日は何か話があるかな？」"
-        };
-      });
+      adventurers = data;
     }
 
     function renderAdventurers() {
@@ -361,10 +305,7 @@
 
       document.getElementById("allTalkedMessage").textContent =
         "今日の冒険者" + adventurers.length +
-        "人との会話が終わりました。これで営業を終了できます。";
-
-      document.getElementById("endDayButton").textContent =
-        "1日を終える（会話完了後）";
+        "人との会話が終わりました。営業を終了できます。";
     }
 
     function updateStatus() {
@@ -378,17 +319,10 @@
         tavern: "酒場の営業"
       };
 
-      document.getElementById("phase").textContent =
-        phaseNames[phase];
-
-      document.getElementById("morningSection").hidden =
-        phase !== "morning";
-
-      document.getElementById("preparationSection").hidden =
-        phase !== "preparation";
-
-      document.getElementById("tavernSection").hidden =
-        phase !== "tavern";
+      document.getElementById("phase").textContent = phaseNames[phase];
+      document.getElementById("morningSection").hidden = phase !== "morning";
+      document.getElementById("preparationSection").hidden = phase !== "preparation";
+      document.getElementById("tavernSection").hidden = phase !== "tavern";
     }
 
     function addLog(message) {
@@ -397,22 +331,18 @@
     }
 
     function morning(place) {
-      if (phase !== "morning") {
-        return;
-      }
+      if (phase !== "morning") return;
 
       phase = "preparation";
-
       document.getElementById("morningResult").textContent =
         place + "で行動しました。";
 
-      // 仮の報酬
       money += 100;
       reputation += 1;
 
       addLog(
-        day + "日目：朝の行動「" + place + "」。" +
-        " 所持金 +100G、評判 +1。"
+        day + "日目：朝の行動「" + place +
+        "」。所持金 +100G、評判 +1。"
       );
 
       updateMenuPreview();
@@ -421,20 +351,13 @@
 
     function getMenu() {
       return {
-        ingredient:
-          document.getElementById("foodIngredient").value,
-        richness:
-          document.getElementById("foodRichness").value,
-        cooking:
-          document.getElementById("foodCooking").value,
-        flavor:
-          document.getElementById("foodFlavor").value,
-        drinkType:
-          document.getElementById("drinkType").value,
-        alcohol:
-          document.getElementById("drinkAlcohol").value,
-        smell:
-          document.getElementById("drinkSmell").value
+        ingredient: document.getElementById("foodIngredient").value,
+        richness: document.getElementById("foodRichness").value,
+        cooking: document.getElementById("foodCooking").value,
+        flavor: document.getElementById("foodFlavor").value,
+        drinkType: document.getElementById("drinkType").value,
+        alcohol: document.getElementById("drinkAlcohol").value,
+        smell: document.getElementById("drinkSmell").value
       };
     }
 
@@ -451,33 +374,27 @@
     }
 
     function updateMenuPreview() {
-      const preview = document.getElementById("menuPreview");
-
-      if (preview) {
-        preview.textContent = menuToText(getMenu());
-      }
+      document.getElementById("menuPreview").textContent =
+        menuToText(getMenu());
     }
 
     function openTavern() {
-      if (phase !== "preparation") {
-        return;
-      }
+      if (phase !== "preparation") return;
 
       todaysMenu = getMenu();
       phase = "tavern";
       talkCount = 0;
 
-      for (let i = 0; i < adventurers.length; i++) {
-        const button = document.getElementById("talkButton" + i);
-        const dialogue = document.getElementById("dialogue" + i);
+      adventurers.forEach(function(adventurer, index) {
+        const button = document.getElementById("talkButton" + index);
+        const dialogue = document.getElementById("dialogue" + index);
 
         button.disabled = false;
-        button.textContent =
-          adventurers[i].name + "と会話する";
+        button.textContent = adventurer.name + "と会話する";
 
         dialogue.hidden = true;
         dialogue.textContent = "";
-      }
+      });
 
       document.getElementById("tavernResult").textContent =
         day + "日目の酒場を営業しています。" +
@@ -491,30 +408,23 @@
 
       document.getElementById("allTalkedMessage").hidden = true;
       document.getElementById("endDayButton").disabled = true;
+      document.getElementById("endDayButton").textContent =
+        "1日を終える（会話完了後）";
 
       addLog(day + "日目：酒場の営業を開始。");
-
       updateStatus();
     }
 
     function talkTo(index) {
-      if (phase !== "tavern") {
-        return;
-      }
+      if (phase !== "tavern") return;
 
       const adventurer = adventurers[index];
-
-      if (!adventurer) {
-        return;
-      }
+      if (!adventurer) return;
 
       const button = document.getElementById("talkButton" + index);
       const dialogue = document.getElementById("dialogue" + index);
 
-      // 同じ冒険者との会話は1日1回
-      if (button.disabled) {
-        return;
-      }
+      if (button.disabled) return;
 
       button.disabled = true;
       button.textContent = adventurer.name + "（会話済み）";
@@ -535,19 +445,13 @@
       if (talkCount === adventurers.length) {
         document.getElementById("allTalkedMessage").hidden = false;
         document.getElementById("endDayButton").disabled = false;
-        document.getElementById("endDayButton").textContent =
-          "1日を終える";
+        document.getElementById("endDayButton").textContent = "1日を終える";
       }
     }
 
     function endDay() {
-      if (phase !== "tavern") {
-        return;
-      }
-
-      if (talkCount < adventurers.length) {
-        return;
-      }
+      if (phase !== "tavern") return;
+      if (talkCount < adventurers.length) return;
 
       addLog(day + "日目：営業を終了。");
 
@@ -559,7 +463,6 @@
         "今日の行動を選んでください。";
 
       addLog(day + "日目：新しい朝を迎えました。");
-
       updateStatus();
     }
 
