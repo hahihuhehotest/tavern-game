@@ -1,9 +1,19 @@
-
 [
   {
     "id": "leon",
     "name": "レオン",
     "race": "人間",
+    "rank": "D",
+    "abilities": {
+      "stamina": 7,
+      "magic": 2,
+      "speed": 6,
+      "experience": 4
+    },
+    "personality": {
+      "bravery": "brave",
+      "judgment": "intuition"
+    },
     "purpose": "討伐依頼",
     "impression": "討伐の話に興味があるようだ。",
     "dialogue": "レオン「最近、北の街道に魔物が出るらしい。討伐依頼があれば受けてみたいな。」"
@@ -12,6 +22,17 @@
     "id": "milia",
     "name": "ミリア",
     "race": "エルフ",
+    "rank": "E",
+    "abilities": {
+      "stamina": 3,
+      "magic": 8,
+      "speed": 6,
+      "experience": 3
+    },
+    "personality": {
+      "bravery": "cautious",
+      "judgment": "deliberation"
+    },
     "purpose": "採取・植物",
     "impression": "採取や植物の話に詳しそうだ。",
     "dialogue": "ミリア「森の奥で珍しい薬草を見つけたの。採取の依頼があれば、ぜひ教えてほしいわ。」"
@@ -20,6 +41,17 @@
     "id": "garm",
     "name": "ガルム",
     "race": "ドワーフ",
+    "rank": "F",
+    "abilities": {
+      "stamina": 8,
+      "magic": 1,
+      "speed": 3,
+      "experience": 5
+    },
+    "personality": {
+      "bravery": "normal",
+      "judgment": "normal"
+    },
     "purpose": "酒・装備",
     "impression": "酒や装備の話をしたそうだ。",
     "dialogue": "ガルム「いい酒と頑丈な装備が欲しいな。装備の材料になる鉱石の話も歓迎だ。」"
