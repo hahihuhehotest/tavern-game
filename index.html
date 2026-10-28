@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.7</title>
+  <title>酒場経営ゲーム 試作品0.8</title>
   <style>
     body {
       font-family: sans-serif;
@@ -48,17 +48,18 @@
       margin-top: 12px;
     }
 
-    .status {
+    .status, .progress {
       font-weight: bold;
       color: #79552b;
     }
 
-    .menu-box {
+    .menu-box, .dialogue, .info-box {
       padding: 12px;
       background: #f9f3e9;
       border-radius: 8px;
       line-height: 1.8;
       white-space: pre-line;
+      overflow-wrap: anywhere;
     }
 
     .adventurer {
@@ -73,17 +74,11 @@
     }
 
     .dialogue {
-      background: #f9f3e9;
-      padding: 10px;
-      border-radius: 8px;
-      line-height: 1.7;
-      white-space: pre-line;
       margin-top: 10px;
     }
 
-    .adventurer-progress {
-      color: #79552b;
-      font-weight: bold;
+    .info-box p {
+      margin: 5px 0;
     }
 
     #log {
@@ -105,7 +100,7 @@
 </head>
 <body>
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.7</p>
+  <p>試作品 0.8</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -202,7 +197,7 @@
     <div id="activeMenu" class="menu-box"></div>
 
     <h3>冒険者との会話</h3>
-    <p id="talkCount" class="adventurer-progress">会話：0人</p>
+    <p id="talkCount" class="progress">会話：0人</p>
     <div id="adventurerList"></div>
 
     <p id="allTalkedMessage" hidden>
@@ -229,6 +224,41 @@
     let currentAdventurerIndex = 0;
     let adventurers = [];
 
+    // 情報収集の進捗。冒険者ごと・項目ごとに保持する。
+    const knowledge = {};
+
+    const abilityFields = [
+      { key: "stamina", label: "体力" },
+      { key: "magic", label: "魔力" },
+      { key: "speed", label: "速さ" },
+      { key: "experience", label: "経験" }
+    ];
+
+    const personalityFields = [
+      {
+        key: "bravery",
+        label: "勇敢さ",
+        values: {
+          brave: "勇敢",
+          normal: "普通",
+          cautious: "慎重"
+        }
+      },
+      {
+        key: "judgment",
+        label: "判断傾向",
+        values: {
+          intuition: "直感",
+          normal: "普通",
+          deliberation: "熟考"
+        }
+      }
+    ];
+
+    const validRanks = ["S", "A", "B", "C", "D", "E", "F", "G"];
+    const validBravery = ["brave", "normal", "cautious"];
+    const validJudgment = ["intuition", "normal", "deliberation"];
+
     async function loadAdventurers() {
       const response = await fetch("./data/adventurers.json");
 
@@ -245,77 +275,165 @@
       }
 
       const ids = new Set();
-      const validRanks = ["S", "A", "B", "C", "D", "E", "F", "G"];
-      const validBravery = ["brave", "normal", "cautious"];
-      const validJudgment = ["intuition", "normal", "deliberation"];
-      const abilityNames = ["stamina", "magic", "speed", "experience"];
 
-      data.forEach(function(adventurer) {
+      data.forEach(function(a) {
         if (
-          !adventurer.id ||
-          !adventurer.name ||
-          !adventurer.race ||
-          !adventurer.purpose ||
-          !adventurer.impression ||
-          !adventurer.dialogue
+          !a.id || !a.name || !a.race ||
+          !a.purpose || !a.impression || !a.dialogue
         ) {
           throw new Error(
-            "各冒険者に id、name、race、purpose、impression、dialogue が必要です。"
+            "冒険者に id、name、race、purpose、impression、dialogue が必要です。"
           );
         }
 
-        if (ids.has(adventurer.id)) {
-          throw new Error("冒険者IDが重複しています：" + adventurer.id);
+        if (ids.has(a.id)) {
+          throw new Error("冒険者IDが重複しています：" + a.id);
         }
-        ids.add(adventurer.id);
+        ids.add(a.id);
 
-        if (!validRanks.includes(adventurer.rank)) {
+        if (!validRanks.includes(a.rank)) {
+          throw new Error(a.name + "のランクが不正です。");
+        }
+
+        if (!a.abilities || !a.personality) {
           throw new Error(
-            adventurer.name + "のランクが不正です。S～Gを設定してください。"
+            a.name + "に abilities または personality がありません。"
           );
         }
 
-        if (
-          !adventurer.abilities ||
-          !adventurer.personality
-        ) {
-          throw new Error(
-            adventurer.name + "に abilities または personality がありません。"
-          );
-        }
-
-        abilityNames.forEach(function(key) {
-          const value = adventurer.abilities[key];
+        abilityFields.forEach(function(field) {
+          const value = a.abilities[field.key];
 
           if (
             typeof value !== "number" ||
             !Number.isFinite(value) ||
             value < 1 ||
-            value > 10
+            value > 10 ||
+            !Number.isInteger(value)
           ) {
             throw new Error(
-              adventurer.name + "の能力 " + key +
-              " は1～10の数値にしてください。"
+              a.name + "の" + field.label + "は1～10の整数にしてください。"
             );
           }
         });
 
-        if (!validBravery.includes(adventurer.personality.bravery)) {
-          throw new Error(
-            adventurer.name +
-            "の bravery は brave、normal、cautious のいずれかにしてください。"
-          );
+        if (!validBravery.includes(a.personality.bravery)) {
+          throw new Error(a.name + "の勇敢さの設定が不正です。");
         }
 
-        if (!validJudgment.includes(adventurer.personality.judgment)) {
-          throw new Error(
-            adventurer.name +
-            "の judgment は intuition、normal、deliberation のいずれかにしてください。"
-          );
+        if (!validJudgment.includes(a.personality.judgment)) {
+          throw new Error(a.name + "の判断傾向の設定が不正です。");
         }
+
+        knowledge[a.id] = {};
+        abilityFields.concat(personalityFields).forEach(function(field) {
+          knowledge[a.id][field.key] = 0;
+        });
       });
 
       adventurers = data;
+    }
+
+    function getFieldValue(adventurer, field) {
+      if (field.key in adventurer.abilities) {
+        return adventurer.abilities[field.key];
+      }
+      return adventurer.personality[field.key];
+    }
+
+    function getAbilityRange(value, stage) {
+      if (stage >= 3) {
+        return String(value);
+      }
+
+      // 1回目は4段階分、2回目は3段階分の幅。
+      const width = stage === 1 ? 4 : 3;
+      const minStart = Math.max(1, value - width + 1);
+      const maxStart = Math.min(value, 11 - width);
+
+      const lower = Math.floor(
+        Math.random() * (maxStart - minStart + 1)
+      ) + minStart;
+
+      return lower + "〜" + (lower + width - 1);
+    }
+
+    function getPersonalityHint(value, field, stage) {
+      const isBravery = field.key === "bravery";
+
+      if (stage >= 3) {
+        return field.values[value] + "（確定）";
+      }
+
+      if (isBravery) {
+        if (value === "brave") {
+          return stage === 1 ? "勇敢〜普通の傾向" : "勇敢寄り";
+        }
+        if (value === "cautious") {
+          return stage === 1 ? "普通〜慎重の傾向" : "慎重寄り";
+        }
+        return stage === 1 ? "勇敢さは中間的な傾向" : "普通寄り";
+      }
+
+      if (value === "intuition") {
+        return stage === 1 ? "直感〜普通の傾向" : "直感寄り";
+      }
+      if (value === "deliberation") {
+        return stage === 1 ? "普通〜熟考の傾向" : "熟考寄り";
+      }
+      return stage === 1 ? "判断傾向は中間的" : "普通寄り";
+    }
+
+    function getFieldLabel(field) {
+      return field.label;
+    }
+
+    function getFieldDisplay(adventurer, field) {
+      const stage = knowledge[adventurer.id][field.key];
+
+      if (stage === 0) {
+        return "不明";
+      }
+
+      const value = getFieldValue(adventurer, field);
+
+      if (field.key in adventurer.abilities) {
+        return getAbilityRange(value, stage);
+      }
+
+      return getPersonalityHint(value, field, stage);
+    }
+
+    function renderAdventurerInfo(adventurer, container) {
+      container.replaceChildren();
+
+      const rank = document.createElement("p");
+      rank.textContent = "ランク：" + adventurer.rank;
+      container.appendChild(rank);
+
+      const abilityHeading = document.createElement("p");
+      abilityHeading.textContent = "能力";
+      abilityHeading.style.fontWeight = "bold";
+      container.appendChild(abilityHeading);
+
+      abilityFields.forEach(function(field) {
+        const line = document.createElement("p");
+        line.textContent =
+          field.label + "：" + getFieldDisplay(adventurer, field);
+        container.appendChild(line);
+      });
+
+      const personalityHeading = document.createElement("p");
+      personalityHeading.textContent = "性格";
+      personalityHeading.style.fontWeight = "bold";
+      container.appendChild(personalityHeading);
+
+      personalityFields.forEach(function(field) {
+        const line = document.createElement("p");
+        line.textContent =
+          field.label + "：" + getFieldDisplay(adventurer, field);
+        container.appendChild(line);
+      });
     }
 
     function renderAdventurers() {
@@ -329,7 +447,7 @@
         card.hidden = true;
 
         const progress = document.createElement("p");
-        progress.className = "adventurer-progress";
+        progress.className = "progress";
         progress.textContent =
           "冒険者 " + (index + 1) + " / " + adventurers.length;
 
@@ -338,6 +456,14 @@
 
         const race = document.createElement("p");
         race.textContent = "種族：" + adventurer.race;
+
+        const infoHeading = document.createElement("h4");
+        infoHeading.textContent = "冒険者の情報";
+
+        const info = document.createElement("div");
+        info.className = "info-box";
+        info.id = "info" + index;
+        renderAdventurerInfo(adventurer, info);
 
         const impression = document.createElement("p");
         impression.textContent = "様子：" + adventurer.impression;
@@ -365,6 +491,8 @@
         card.appendChild(progress);
         card.appendChild(heading);
         card.appendChild(race);
+        card.appendChild(infoHeading);
+        card.appendChild(info);
         card.appendChild(impression);
         card.appendChild(button);
         card.appendChild(dialogue);
@@ -415,7 +543,7 @@
 
       addLog(
         day + "日目：朝の行動「" + place +
-        "」。所持金 +100G、評判 +1。"
+        」。所持金 +100G、評判 +1。"
       );
 
       updateMenuPreview();
@@ -495,6 +623,62 @@
       updateStatus();
     }
 
+    function getAvailableFields(adventurer) {
+      return abilityFields.concat(personalityFields).filter(function(field) {
+        return knowledge[adventurer.id][field.key] < 3;
+      });
+    }
+
+    function discoverInformation(adventurer) {
+      const available = getAvailableFields(adventurer);
+
+      if (available.length === 0) {
+        return {
+          field: null,
+          message: "この冒険者について、能力と性格の情報はすべて判明している。"
+        };
+      }
+
+      const field = available[
+        Math.floor(Math.random() * available.length)
+      ];
+
+      knowledge[adventurer.id][field.key]++;
+      const stage = knowledge[adventurer.id][field.key];
+      const display = getFieldDisplay(adventurer, field);
+
+      let message = "";
+
+      if (field.key in adventurer.abilities) {
+        if (stage === 1) {
+          message = field.label + "について、" + display +
+            "くらいの力がありそうだと分かった。";
+        } else if (stage === 2) {
+          message = field.label + "について、さらに話を聞いた。" +
+            "推定値が " + display + " に絞られた。";
+        } else {
+          message = field.label + "の正確な能力値が " +
+            display + " と判明した。";
+        }
+      } else {
+        if (stage === 1) {
+          message = field.label + "について話を聞いた。" +
+            display + "ようだ。";
+        } else if (stage === 2) {
+          message = "さらに話を聞き、" + field.label + "は" +
+            display + "だと分かってきた。";
+        } else {
+          message = field.label + "は「" + display +
+            "」だと確定した。";
+        }
+      }
+
+      return {
+        field: field,
+        message: message
+      };
+    }
+
     function talkTo(index) {
       if (phase !== "tavern") return;
       if (index !== currentAdventurerIndex) return;
@@ -508,9 +692,19 @@
       button.disabled = true;
       button.textContent = "会話済み";
 
+      const discovery = discoverInformation(adventurer);
+
       const dialogue = document.getElementById("dialogue" + index);
-      dialogue.textContent = adventurer.dialogue;
+      dialogue.textContent =
+        adventurer.dialogue +
+        "\n\n【会話から得た情報】\n" +
+        discovery.message;
       dialogue.hidden = false;
+
+      renderAdventurerInfo(
+        adventurer,
+        document.getElementById("info" + index)
+      );
 
       talkCount++;
 
@@ -526,7 +720,7 @@
 
       addLog(
         day + "日目：" + adventurer.name +
-        "と会話。話題：" + adventurer.purpose + "。"
+        "と会話。情報収集：「" + discovery.message + "」"
       );
     }
 
