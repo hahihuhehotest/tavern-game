@@ -1,0 +1,26 @@
+[
+  {
+    "id": "dragon_tail_soup",
+    "name": "竜のテールスープ",
+    "main": "肉",
+    "richness": "こってり",
+    "cooking": "汁物",
+    "style": "標準"
+  },
+  {
+    "id": "grilled_fish",
+    "name": "川魚の塩焼き",
+    "main": "魚",
+    "richness": "あっさり",
+    "cooking": "焼き物",
+    "style": "繊細"
+  },
+  {
+    "id": "grain_stew",
+    "name": "穀物の煮込み",
+    "main": "穀物",
+    "richness": "普通",
+    "cooking": "煮込み",
+    "style": "大胆"
+  }
+]
