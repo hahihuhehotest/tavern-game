@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.9</title>
+  <title>酒場経営ゲーム 試作品0.10</title>
   <style>
     body {
       font-family: sans-serif;
@@ -80,7 +79,7 @@
 </head>
 <body>
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.9</p>
+  <p>試作品 0.10</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -95,7 +94,7 @@
   <section id="loadError" hidden>
     <h2>データの読み込みに失敗しました</h2>
     <p id="loadErrorMessage" class="error"></p>
-    <p>data/adventurers.json のファイル名と内容を確認してください。</p>
+    <p>data/adventurers.json と data/dishes.json のファイル名と内容を確認してください。</p>
   </section>
 
   <section id="morningSection" hidden>
@@ -110,35 +109,10 @@
     <h2>営業準備</h2>
     <p>今日のお客に出す料理と飲み物を決めましょう。</p>
 
-    <h3>料理の設定</h3>
-    <label for="foodIngredient">食材</label>
-    <select id="foodIngredient">
-      <option value="肉">肉</option>
-      <option value="魚">魚</option>
-      <option value="穀物">穀物</option>
-    </select>
-
-    <label for="foodRichness">味の重さ</label>
-    <select id="foodRichness">
-      <option value="こってり">こってり</option>
-      <option value="普通" selected>普通</option>
-      <option value="あっさり">あっさり</option>
-    </select>
-
-    <label for="foodCooking">調理法</label>
-    <select id="foodCooking">
-      <option value="焼き物">焼き物</option>
-      <option value="スープ">スープ</option>
-      <option value="煮込み">煮込み</option>
-      <option value="生">生</option>
-    </select>
-
-    <label for="foodFlavor">味付けの方向</label>
-    <select id="foodFlavor">
-      <option value="繊細">繊細</option>
-      <option value="標準" selected>標準</option>
-      <option value="大胆">大胆</option>
-    </select>
+    <h3>料理の選択</h3>
+    <label for="dishSelect">手持ちの料理</label>
+    <select id="dishSelect"></select>
+    <div id="dishDetail" class="info-box"></div>
 
     <h3>飲み物の設定</h3>
     <label for="drinkType">飲み物の種類</label>
@@ -202,6 +176,15 @@
     let talkCount = 0;
     let currentAdventurerIndex = 0;
     let adventurers = [];
+
+    // 料理データ（dishes.json の全料理）
+    let dishes = [];
+
+    // 手持ちの料理ID。
+    // 空配列のままなら、テスト用として dishes.json の全料理を持っている扱いにする。
+    // 特定の料理だけ持たせたい場合は、例：["dragon_tail_soup"]
+    const INITIAL_OWNED_DISH_IDS = [];
+    let ownedDishIds = [];
 
     // 調査情報の保存先
     const SAVE_KEY = "tavernGame_knowledge_v09";
@@ -394,6 +377,92 @@
 
       adventurers = data;
       saveKnowledge();
+    }
+
+    // 料理データを読み込む
+    async function loadDishes() {
+      const response = await fetch("./data/dishes.json");
+
+      if (!response.ok) {
+        throw new Error(
+          "料理データを取得できませんでした。HTTP " + response.status
+        );
+      }
+
+      const data = await response.json();
+
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error("料理データが空か、配列形式ではありません。");
+      }
+
+      const ids = new Set();
+
+      data.forEach(function(d) {
+        if (
+          !d.id || !d.name || !d.main ||
+          !d.richness || !d.cooking || !d.style
+        ) {
+          throw new Error(
+            "料理に id、name、main、richness、cooking、style が必要です。"
+          );
+        }
+
+        if (ids.has(d.id)) {
+          throw new Error("料理IDが重複しています：" + d.id);
+        }
+        ids.add(d.id);
+      });
+
+      dishes = data;
+
+      // 手持ちの料理を決める（存在しないIDは無視）
+      if (INITIAL_OWNED_DISH_IDS.length === 0) {
+        ownedDishIds = dishes.map(function(d) { return d.id; });
+      } else {
+        ownedDishIds = INITIAL_OWNED_DISH_IDS.filter(function(id) {
+          return ids.has(id);
+        });
+      }
+
+      if (ownedDishIds.length === 0) {
+        throw new Error("手持ちの料理が1つもありません。");
+      }
+
+      renderDishSelect();
+    }
+
+    function getOwnedDishes() {
+      return dishes.filter(function(d) {
+        return ownedDishIds.includes(d.id);
+      });
+    }
+
+    // 手持ちの料理を選択欄に反映する
+    function renderDishSelect() {
+      const select = document.getElementById("dishSelect");
+      select.replaceChildren();
+
+      getOwnedDishes().forEach(function(d) {
+        const option = document.createElement("option");
+        option.value = d.id;
+        option.textContent = d.name;
+        select.appendChild(option);
+      });
+    }
+
+    function getSelectedDish() {
+      const id = document.getElementById("dishSelect").value;
+      return getOwnedDishes().find(function(d) {
+        return d.id === id;
+      });
+    }
+
+    function dishToText(dish) {
+      return dish.name + "\n" +
+        "食材：" + dish.main + "\n" +
+        "味の重さ：" + dish.richness + "\n" +
+        "調理法：" + dish.cooking + "\n" +
+        "味付け：" + dish.style;
     }
 
     function getFieldValue(adventurer, field) {
@@ -609,10 +678,7 @@
 
     function getMenu() {
       return {
-        ingredient: document.getElementById("foodIngredient").value,
-        richness: document.getElementById("foodRichness").value,
-        cooking: document.getElementById("foodCooking").value,
-        flavor: document.getElementById("foodFlavor").value,
+        dish: getSelectedDish(),
         drinkType: document.getElementById("drinkType").value,
         alcohol: document.getElementById("drinkAlcohol").value,
         smell: document.getElementById("drinkSmell").value
@@ -620,11 +686,9 @@
     }
 
     function menuToText(menu) {
-      return "料理\n" +
-        "食材：" + menu.ingredient + "\n" +
-        "味の重さ：" + menu.richness + "\n" +
-        "調理法：" + menu.cooking + "\n" +
-        "味付け：" + menu.flavor + "\n\n" +
+      const dishText = menu.dish ? dishToText(menu.dish) : "（料理が未選択）";
+
+      return "料理\n" + dishText + "\n\n" +
         "飲み物\n" +
         "種類：" + menu.drinkType + "系\n" +
         "アルコール度数：" + menu.alcohol + "\n" +
@@ -632,6 +696,11 @@
     }
 
     function updateMenuPreview() {
+      const dish = getSelectedDish();
+
+      document.getElementById("dishDetail").textContent =
+        dish ? dishToText(dish) : "料理を選んでください。";
+
       document.getElementById("menuPreview").textContent =
         menuToText(getMenu());
     }
@@ -639,7 +708,10 @@
     function openTavern() {
       if (phase !== "preparation") return;
 
-      todaysMenu = getMenu();
+      const menu = getMenu();
+      if (!menu.dish) return;
+
+      todaysMenu = menu;
       phase = "tavern";
       talkCount = 0;
       currentAdventurerIndex = 0;
@@ -674,7 +746,10 @@
       document.getElementById("endDayButton").textContent =
         "1日を終える（会話完了後）";
 
-      addLog(day + "日目：酒場の営業を開始。");
+      addLog(
+        day + "日目：酒場の営業を開始。料理「" +
+        todaysMenu.dish.name + "」。"
+      );
       addLog("最初の冒険者「" + adventurers[0].name + "」が来店。");
 
       updateStatus();
@@ -832,10 +907,7 @@
     }
 
     const menuInputs = [
-      "foodIngredient",
-      "foodRichness",
-      "foodCooking",
-      "foodFlavor",
+      "dishSelect",
       "drinkType",
       "drinkAlcohol",
       "drinkSmell"
@@ -851,10 +923,11 @@
     async function initGame() {
       try {
         await loadAdventurers();
+        await loadDishes();
         renderAdventurers();
         updateMenuPreview();
         updateStatus();
-        addLog("冒険者データを読み込みました。");
+        addLog("冒険者データと料理データを読み込みました。");
 
         const savedCount = Object.values(knowledge).reduce(
           function(total, adventurerData) {
