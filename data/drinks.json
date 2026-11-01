@@ -1,0 +1,23 @@
+[
+  {
+    "id": "barley_ale",
+    "name": "麦のエール",
+    "type": "穀物",
+    "alcohol": "普通",
+    "smell": "普通"
+  },
+  {
+    "id": "forest_berry_wine",
+    "name": "森の木苺酒",
+    "type": "果実",
+    "alcohol": "低",
+    "smell": "強"
+  },
+  {
+    "id": "mountain_spring_water",
+    "name": "山の湧き水",
+    "type": "その他",
+    "alcohol": "なし",
+    "smell": "弱"
+  }
+]
