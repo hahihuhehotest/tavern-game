@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.10</title>
+  <title>酒場経営ゲーム 試作品0.11</title>
   <style>
     body {
       font-family: sans-serif;
@@ -79,7 +79,7 @@
 </head>
 <body>
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.10</p>
+  <p>試作品 0.11</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -139,7 +139,8 @@
 
     <h3>本日のメニュー</h3>
     <div id="menuPreview" class="menu-box"></div>
-    <button onclick="openTavern()">このメニューで酒場を営業する</button>
+    <button id="openTavernButton" type="button">このメニューで酒場を営業する</button>
+    <p id="prepMessage" class="error" hidden></p>
   </section>
 
   <section id="tavernSection" hidden>
@@ -244,8 +245,30 @@
       addLog("冒険者の調査情報をリセットしました。");
 
       if (adventurers.length > 0) {
+        loadKnowledgeDefaults();
         renderAdventurers();
       }
+    }
+
+    // 保存データが空のときに、各冒険者の調査段階を0で初期化する
+    function loadKnowledgeDefaults() {
+      adventurers.forEach(function(a) {
+        if (
+          !knowledge[a.id] ||
+          typeof knowledge[a.id] !== "object" ||
+          Array.isArray(knowledge[a.id])
+        ) {
+          knowledge[a.id] = {};
+        }
+
+        abilityFields.concat(personalityFields).forEach(function(field) {
+          const stage = knowledge[a.id][field.key];
+
+          if (!Number.isInteger(stage) || stage < 0 || stage > 3) {
+            knowledge[a.id][field.key] = 0;
+          }
+        });
+      });
     }
 
     const abilityFields = [
@@ -345,27 +368,6 @@
         if (!validJudgment.includes(a.personality.judgment)) {
           throw new Error(a.name + "の判断傾向の設定が不正です。");
         }
-
-        // 既存の保存データを残しつつ、不足項目だけ初期化する
-        if (
-          !knowledge[a.id] ||
-          typeof knowledge[a.id] !== "object" ||
-          Array.isArray(knowledge[a.id])
-        ) {
-          knowledge[a.id] = {};
-        }
-
-        abilityFields.concat(personalityFields).forEach(function(field) {
-          const stage = knowledge[a.id][field.key];
-
-          if (
-            !Number.isInteger(stage) ||
-            stage < 0 ||
-            stage > 3
-          ) {
-            knowledge[a.id][field.key] = 0;
-          }
-        });
       });
 
       // 現在存在しない冒険者の古いデータは削除
@@ -376,6 +378,9 @@
       });
 
       adventurers = data;
+
+      // 既存の保存データを残しつつ、不足項目だけ初期化する
+      loadKnowledgeDefaults();
       saveKnowledge();
     }
 
@@ -448,13 +453,23 @@
         option.textContent = d.name;
         select.appendChild(option);
       });
+
+      // 先頭の料理を選んだ状態にしておく
+      if (select.options.length > 0) {
+        select.selectedIndex = 0;
+      }
     }
 
+    // 選択中の料理を返す。選ばれていなければ先頭の手持ち料理を返す
     function getSelectedDish() {
+      const owned = getOwnedDishes();
       const id = document.getElementById("dishSelect").value;
-      return getOwnedDishes().find(function(d) {
+
+      const found = owned.find(function(d) {
         return d.id === id;
       });
+
+      return found || owned[0];
     }
 
     function dishToText(dish) {
@@ -657,6 +672,19 @@
       log.textContent += "\n" + message;
     }
 
+    // 営業準備の画面に、赤字でメッセージを出す
+    function showPrepMessage(message) {
+      const el = document.getElementById("prepMessage");
+      el.textContent = message;
+      el.hidden = false;
+    }
+
+    function clearPrepMessage() {
+      const el = document.getElementById("prepMessage");
+      el.textContent = "";
+      el.hidden = true;
+    }
+
     function morning(place) {
       if (phase !== "morning") return;
 
@@ -672,6 +700,7 @@
         "」。所持金 +100G、評判 +1。"
       );
 
+      clearPrepMessage();
       updateMenuPreview();
       updateStatus();
     }
@@ -706,53 +735,77 @@
     }
 
     function openTavern() {
-      if (phase !== "preparation") return;
+      clearPrepMessage();
 
-      const menu = getMenu();
-      if (!menu.dish) return;
+      try {
+        if (phase !== "preparation") {
+          showPrepMessage(
+            "営業準備の段階ではないため、営業を始められません。現在の段階：" + phase
+          );
+          return;
+        }
 
-      todaysMenu = menu;
-      phase = "tavern";
-      talkCount = 0;
-      currentAdventurerIndex = 0;
+        if (adventurers.length === 0) {
+          showPrepMessage("冒険者データが読み込まれていません。");
+          return;
+        }
 
-      adventurers.forEach(function(adventurer, index) {
-        document.getElementById("adventurerCard" + index).hidden = true;
+        const menu = getMenu();
 
-        const button = document.getElementById("talkButton" + index);
-        button.disabled = false;
-        button.textContent = "話しかける";
+        if (!menu.dish) {
+          showPrepMessage(
+            "料理が選べません。手持ちの料理数：" + getOwnedDishes().length +
+            "、料理データ数：" + dishes.length
+          );
+          return;
+        }
 
-        const dialogue = document.getElementById("dialogue" + index);
-        dialogue.hidden = true;
-        dialogue.textContent = "";
+        todaysMenu = menu;
+        phase = "tavern";
+        talkCount = 0;
+        currentAdventurerIndex = 0;
 
-        document.getElementById("nextButton" + index).hidden = true;
-      });
+        adventurers.forEach(function(adventurer, index) {
+          document.getElementById("adventurerCard" + index).hidden = true;
 
-      document.getElementById("adventurerCard0").hidden = false;
+          const button = document.getElementById("talkButton" + index);
+          button.disabled = false;
+          button.textContent = "話しかける";
 
-      document.getElementById("tavernResult").textContent =
-        day + "日目の酒場を営業しています。";
+          const dialogue = document.getElementById("dialogue" + index);
+          dialogue.hidden = true;
+          dialogue.textContent = "";
 
-      document.getElementById("activeMenu").textContent =
-        menuToText(todaysMenu);
+          document.getElementById("nextButton" + index).hidden = true;
+        });
 
-      document.getElementById("talkCount").textContent =
-        "会話：0 / " + adventurers.length + "人";
+        document.getElementById("adventurerCard0").hidden = false;
 
-      document.getElementById("allTalkedMessage").hidden = true;
-      document.getElementById("endDayButton").disabled = true;
-      document.getElementById("endDayButton").textContent =
-        "1日を終える（会話完了後）";
+        document.getElementById("tavernResult").textContent =
+          day + "日目の酒場を営業しています。";
 
-      addLog(
-        day + "日目：酒場の営業を開始。料理「" +
-        todaysMenu.dish.name + "」。"
-      );
-      addLog("最初の冒険者「" + adventurers[0].name + "」が来店。");
+        document.getElementById("activeMenu").textContent =
+          menuToText(todaysMenu);
 
-      updateStatus();
+        document.getElementById("talkCount").textContent =
+          "会話：0 / " + adventurers.length + "人";
+
+        document.getElementById("allTalkedMessage").hidden = true;
+        document.getElementById("endDayButton").disabled = true;
+        document.getElementById("endDayButton").textContent =
+          "1日を終える（会話完了後）";
+
+        addLog(
+          day + "日目：酒場の営業を開始。料理「" +
+          todaysMenu.dish.name + "」。"
+        );
+        addLog("最初の冒険者「" + adventurers[0].name + "」が来店。");
+
+        updateStatus();
+      } catch (error) {
+        console.error(error);
+        showPrepMessage("営業開始でエラーが起きました：" + error.message);
+      }
     }
 
     function getAvailableFields(adventurer) {
@@ -905,6 +958,12 @@
       addLog(day + "日目：新しい朝を迎えました。");
       updateStatus();
     }
+
+    // 営業開始ボタン（onclick属性ではなく、ここで登録する）
+    document.getElementById("openTavernButton").addEventListener(
+      "click",
+      openTavern
+    );
 
     const menuInputs = [
       "dishSelect",
