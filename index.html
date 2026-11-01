@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.11</title>
+  <title>酒場経営ゲーム 試作品0.12</title>
   <style>
     body {
       font-family: sans-serif;
@@ -79,7 +79,7 @@
 </head>
 <body>
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.11</p>
+  <p>試作品 0.12</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -94,7 +94,7 @@
   <section id="loadError" hidden>
     <h2>データの読み込みに失敗しました</h2>
     <p id="loadErrorMessage" class="error"></p>
-    <p>data/adventurers.json と data/dishes.json のファイル名と内容を確認してください。</p>
+    <p>data/adventurers.json、data/dishes.json、data/drinks.json のファイル名と内容を確認してください。</p>
   </section>
 
   <section id="morningSection" hidden>
@@ -114,28 +114,10 @@
     <select id="dishSelect"></select>
     <div id="dishDetail" class="info-box"></div>
 
-    <h3>飲み物の設定</h3>
-    <label for="drinkType">飲み物の種類</label>
-    <select id="drinkType">
-      <option value="穀物">穀物系</option>
-      <option value="果実">果実系</option>
-      <option value="その他">その他</option>
-    </select>
-
-    <label for="drinkAlcohol">アルコール度数</label>
-    <select id="drinkAlcohol">
-      <option value="高">高い</option>
-      <option value="普通" selected>普通</option>
-      <option value="低">低い</option>
-      <option value="なし">ノンアルコール</option>
-    </select>
-
-    <label for="drinkSmell">香りの強さ</label>
-    <select id="drinkSmell">
-      <option value="強">強い</option>
-      <option value="普通" selected>普通</option>
-      <option value="弱">弱い</option>
-    </select>
+    <h3>飲み物の選択</h3>
+    <label for="drinkSelect">手持ちの酒・飲み物</label>
+    <select id="drinkSelect"></select>
+    <div id="drinkDetail" class="info-box"></div>
 
     <h3>本日のメニュー</h3>
     <div id="menuPreview" class="menu-box"></div>
@@ -186,6 +168,15 @@
     // 特定の料理だけ持たせたい場合は、例：["dragon_tail_soup"]
     const INITIAL_OWNED_DISH_IDS = [];
     let ownedDishIds = [];
+
+    // 飲み物データ（drinks.json の全飲み物）
+    let drinks = [];
+
+    // 手持ちの飲み物ID。
+    // 空配列のままなら、テスト用として drinks.json の全飲み物を持っている扱いにする。
+    // 特定の飲み物だけ持たせたい場合は、例：["barley_ale"]
+    const INITIAL_OWNED_DRINK_IDS = [];
+    let ownedDrinkIds = [];
 
     // 調査情報の保存先
     const SAVE_KEY = "tavernGame_knowledge_v09";
@@ -302,6 +293,11 @@
     const validRanks = ["S", "A", "B", "C", "D", "E", "F", "G"];
     const validBravery = ["brave", "normal", "cautious"];
     const validJudgment = ["intuition", "normal", "deliberation"];
+
+    // 飲み物の値の一覧
+    const validDrinkTypes = ["穀物", "果実", "その他"];
+    const validDrinkAlcohol = ["高", "普通", "低", "なし"];
+    const validDrinkSmell = ["強", "普通", "弱"];
 
     async function loadAdventurers() {
       const response = await fetch("./data/adventurers.json");
@@ -478,6 +474,122 @@
         "味の重さ：" + dish.richness + "\n" +
         "調理法：" + dish.cooking + "\n" +
         "味付け：" + dish.style;
+    }
+
+    // 飲み物データを読み込む
+    async function loadDrinks() {
+      const response = await fetch("./data/drinks.json");
+
+      if (!response.ok) {
+        throw new Error(
+          "飲み物データを取得できませんでした。HTTP " + response.status
+        );
+      }
+
+      const data = await response.json();
+
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error("飲み物データが空か、配列形式ではありません。");
+      }
+
+      const ids = new Set();
+
+      data.forEach(function(d) {
+        if (
+          !d.id || !d.name || !d.type ||
+          !d.alcohol || !d.smell
+        ) {
+          throw new Error(
+            "飲み物に id、name、type、alcohol、smell が必要です。"
+          );
+        }
+
+        if (ids.has(d.id)) {
+          throw new Error("飲み物IDが重複しています：" + d.id);
+        }
+        ids.add(d.id);
+
+        if (!validDrinkTypes.includes(d.type)) {
+          throw new Error(
+            d.name + "の type が不正です：" + d.type +
+            "（穀物、果実、その他のいずれか）"
+          );
+        }
+
+        if (!validDrinkAlcohol.includes(d.alcohol)) {
+          throw new Error(
+            d.name + "の alcohol が不正です：" + d.alcohol +
+            "（高、普通、低、なしのいずれか）"
+          );
+        }
+
+        if (!validDrinkSmell.includes(d.smell)) {
+          throw new Error(
+            d.name + "の smell が不正です：" + d.smell +
+            "（強、普通、弱のいずれか）"
+          );
+        }
+      });
+
+      drinks = data;
+
+      // 手持ちの飲み物を決める（存在しないIDは無視）
+      if (INITIAL_OWNED_DRINK_IDS.length === 0) {
+        ownedDrinkIds = drinks.map(function(d) { return d.id; });
+      } else {
+        ownedDrinkIds = INITIAL_OWNED_DRINK_IDS.filter(function(id) {
+          return ids.has(id);
+        });
+      }
+
+      if (ownedDrinkIds.length === 0) {
+        throw new Error("手持ちの飲み物が1つもありません。");
+      }
+
+      renderDrinkSelect();
+    }
+
+    function getOwnedDrinks() {
+      return drinks.filter(function(d) {
+        return ownedDrinkIds.includes(d.id);
+      });
+    }
+
+    // 手持ちの飲み物を選択欄に反映する
+    function renderDrinkSelect() {
+      const select = document.getElementById("drinkSelect");
+      select.replaceChildren();
+
+      getOwnedDrinks().forEach(function(d) {
+        const option = document.createElement("option");
+        option.value = d.id;
+        option.textContent = d.name;
+        select.appendChild(option);
+      });
+
+      // 先頭の飲み物を選んだ状態にしておく
+      if (select.options.length > 0) {
+        select.selectedIndex = 0;
+      }
+    }
+
+    // 選択中の飲み物を返す。選ばれていなければ先頭の手持ち飲み物を返す
+    function getSelectedDrink() {
+      const owned = getOwnedDrinks();
+      const id = document.getElementById("drinkSelect").value;
+
+      const found = owned.find(function(d) {
+        return d.id === id;
+      });
+
+      return found || owned[0];
+    }
+
+    function drinkToText(drink) {
+      return drink.name + "\n" +
+        "種類：" + drink.type + "系\n" +
+        "アルコール度数：" + drink.alcohol + "\n" +
+        "香り：" + drink.smell;
     }
 
     function getFieldValue(adventurer, field) {
@@ -708,27 +820,27 @@
     function getMenu() {
       return {
         dish: getSelectedDish(),
-        drinkType: document.getElementById("drinkType").value,
-        alcohol: document.getElementById("drinkAlcohol").value,
-        smell: document.getElementById("drinkSmell").value
+        drink: getSelectedDrink()
       };
     }
 
     function menuToText(menu) {
       const dishText = menu.dish ? dishToText(menu.dish) : "（料理が未選択）";
+      const drinkText = menu.drink ? drinkToText(menu.drink) : "（飲み物が未選択）";
 
       return "料理\n" + dishText + "\n\n" +
-        "飲み物\n" +
-        "種類：" + menu.drinkType + "系\n" +
-        "アルコール度数：" + menu.alcohol + "\n" +
-        "香り：" + menu.smell;
+        "飲み物\n" + drinkText;
     }
 
     function updateMenuPreview() {
       const dish = getSelectedDish();
+      const drink = getSelectedDrink();
 
       document.getElementById("dishDetail").textContent =
         dish ? dishToText(dish) : "料理を選んでください。";
+
+      document.getElementById("drinkDetail").textContent =
+        drink ? drinkToText(drink) : "飲み物を選んでください。";
 
       document.getElementById("menuPreview").textContent =
         menuToText(getMenu());
@@ -756,6 +868,14 @@
           showPrepMessage(
             "料理が選べません。手持ちの料理数：" + getOwnedDishes().length +
             "、料理データ数：" + dishes.length
+          );
+          return;
+        }
+
+        if (!menu.drink) {
+          showPrepMessage(
+            "飲み物が選べません。手持ちの飲み物数：" + getOwnedDrinks().length +
+            "、飲み物データ数：" + drinks.length
           );
           return;
         }
@@ -797,7 +917,8 @@
 
         addLog(
           day + "日目：酒場の営業を開始。料理「" +
-          todaysMenu.dish.name + "」。"
+          todaysMenu.dish.name + "」、飲み物「" +
+          todaysMenu.drink.name + "」。"
         );
         addLog("最初の冒険者「" + adventurers[0].name + "」が来店。");
 
@@ -967,9 +1088,7 @@
 
     const menuInputs = [
       "dishSelect",
-      "drinkType",
-      "drinkAlcohol",
-      "drinkSmell"
+      "drinkSelect"
     ];
 
     menuInputs.forEach(function(id) {
@@ -983,10 +1102,11 @@
       try {
         await loadAdventurers();
         await loadDishes();
+        await loadDrinks();
         renderAdventurers();
         updateMenuPreview();
         updateStatus();
-        addLog("冒険者データと料理データを読み込みました。");
+        addLog("冒険者・料理・飲み物のデータを読み込みました。");
 
         const savedCount = Object.values(knowledge).reduce(
           function(total, adventurerData) {
