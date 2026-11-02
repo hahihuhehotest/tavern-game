@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.13</title>
+  <title>酒場経営ゲーム 試作品0.14</title>
   <style>
     body {
       font-family: sans-serif;
@@ -79,7 +79,7 @@
 </head>
 <body>
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.13</p>
+  <p>試作品 0.14</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -133,15 +133,15 @@
     <div id="activeMenu" class="menu-box"></div>
 
     <h3>冒険者との会話</h3>
-    <p id="talkCount" class="progress">会話：0人</p>
+    <p id="talkCount" class="progress">対応済み：0人</p>
     <div id="adventurerList"></div>
 
     <p id="allTalkedMessage" hidden>
-      今日の冒険者全員との会話が終わりました。営業を終了できます。
+      今日の冒険者全員への対応が終わりました。営業を終了できます。
     </p>
 
     <button id="endDayButton" onclick="endDay()" disabled>
-      1日を終える（会話完了後）
+      1日を終える（全員の対応後）
     </button>
   </section>
 
@@ -156,7 +156,9 @@
     let reputation = 0;
     let phase = "morning";
     let todaysMenu = {};
-    let talkCount = 0;
+
+    // 対応が済んだ冒険者の人数（会話した人＋会話なしだった人）
+    let handledCount = 0;
     let currentAdventurerIndex = 0;
     let adventurers = [];
 
@@ -183,14 +185,14 @@
 
     // ===== 相性（メニューと冒険者の好み）の設定 =====
     // 一致数が HIGH_SCORE 以上なら満足度「高」、NORMAL_SCORE 以上なら「普通」、それ未満は「低」
+    // 満足度「低」の冒険者とは会話できない
     const HIGH_SCORE = 5;
     const NORMAL_SCORE = 3;
 
-    // 満足度ごとに、会話で得られる情報の数
+    // 満足度ごとに、会話で得られる情報の数（「低」は会話なしなので不要）
     const INFO_COUNT_BY_LEVEL = {
       high: 2,
-      normal: 1,
-      low: 0
+      normal: 1
     };
 
     const LEVEL_LABELS = {
@@ -199,11 +201,11 @@
       low: "低"
     };
 
-    // 満足度ごとの反応の文
+    // 来店時の反応の文（冒険者の名前のあとに続く）
     const LEVEL_REACTIONS = {
-      high: "料理も酒もとても気に入った様子で、上機嫌で話してくれた。",
-      normal: "料理と酒を楽しみながら、ほどよく話してくれた。",
-      low: "料理と酒があまり口に合わないようだ。口が重い。"
+      high: "は料理も酒もとても気に入った様子だ。上機嫌で、いろいろ話してくれそうだ。",
+      normal: "は料理と酒を楽しんでいる。話しかけられそうだ。",
+      low: "は料理と酒が口に合わないようだ。話す気にはなれないらしく、そっぽを向いている。"
     };
 
     // 調査情報の保存先
@@ -707,7 +709,8 @@
       return {
         score: score,
         max: max,
-        level: level
+        level: level,
+        canTalk: level !== "low"
       };
     }
 
@@ -840,9 +843,16 @@
         const impression = document.createElement("p");
         impression.textContent = "様子：" + adventurer.impression;
 
+        // 料理と酒への反応（来店時に表示）
+        const reaction = document.createElement("div");
+        reaction.id = "reaction" + index;
+        reaction.className = "dialogue";
+        reaction.hidden = true;
+
         const button = document.createElement("button");
         button.id = "talkButton" + index;
         button.textContent = "話しかける";
+        button.hidden = true;
         button.addEventListener("click", function() {
           talkTo(index);
         });
@@ -866,18 +876,23 @@
         card.appendChild(infoHeading);
         card.appendChild(info);
         card.appendChild(impression);
+        card.appendChild(reaction);
         card.appendChild(button);
         card.appendChild(dialogue);
         card.appendChild(nextButton);
         list.appendChild(card);
       });
 
-      document.getElementById("talkCount").textContent =
-        "会話：0 / " + adventurers.length + "人";
+      updateHandledCount();
 
       document.getElementById("allTalkedMessage").textContent =
         "今日の冒険者" + adventurers.length +
-        "人との会話が終わりました。営業を終了できます。";
+        "人への対応が終わりました。営業を終了できます。";
+    }
+
+    function updateHandledCount() {
+      document.getElementById("talkCount").textContent =
+        "対応済み：" + handledCount + " / " + adventurers.length + "人";
     }
 
     function updateStatus() {
@@ -965,6 +980,53 @@
         menuToText(getMenu());
     }
 
+    // 冒険者が来店したときの処理
+    // まず料理と酒が好みに合うかを判定し、
+    // 合えば「話しかける」ボタンを出し、合わなければ会話なしで次へ進める
+    function showAdventurer(index) {
+      const adventurer = adventurers[index];
+      const evaluation = evaluateMenu(adventurer, todaysMenu);
+
+      document.getElementById("adventurerCard" + index).hidden = false;
+
+      const reaction = document.getElementById("reaction" + index);
+      reaction.textContent =
+        "【料理と酒の反応】\n" +
+        adventurer.name + LEVEL_REACTIONS[evaluation.level] +
+        "\n（満足度：" + LEVEL_LABELS[evaluation.level] + "）";
+      reaction.hidden = false;
+
+      const talkButton = document.getElementById("talkButton" + index);
+      const nextButton = document.getElementById("nextButton" + index);
+
+      if (evaluation.canTalk) {
+        // 会話できる：話しかけるボタンを出す
+        talkButton.hidden = false;
+        talkButton.disabled = false;
+        talkButton.textContent = "話しかける";
+        nextButton.hidden = true;
+      } else {
+        // 会話なし：この冒険者の対応はここで終わり
+        talkButton.hidden = true;
+        handledCount++;
+        updateHandledCount();
+
+        nextButton.textContent =
+          handledCount === adventurers.length
+            ? "全員の対応を終える"
+            : "次の冒険者へ";
+        nextButton.hidden = false;
+      }
+
+      addLog(
+        day + "日目：" + adventurer.name +
+        "が来店。（テスト表示）メニューとの一致：" +
+        evaluation.score + "/" + evaluation.max +
+        "、満足度：" + LEVEL_LABELS[evaluation.level] +
+        (evaluation.canTalk ? "。会話できる。" : "。会話なし。")
+      );
+    }
+
     function openTavern() {
       clearPrepMessage();
 
@@ -1001,13 +1063,19 @@
 
         todaysMenu = menu;
         phase = "tavern";
-        talkCount = 0;
+        handledCount = 0;
         currentAdventurerIndex = 0;
 
+        // 全員のカードを初期状態に戻す
         adventurers.forEach(function(adventurer, index) {
           document.getElementById("adventurerCard" + index).hidden = true;
 
+          const reaction = document.getElementById("reaction" + index);
+          reaction.hidden = true;
+          reaction.textContent = "";
+
           const button = document.getElementById("talkButton" + index);
+          button.hidden = true;
           button.disabled = false;
           button.textContent = "話しかける";
 
@@ -1018,30 +1086,28 @@
           document.getElementById("nextButton" + index).hidden = true;
         });
 
-        document.getElementById("adventurerCard0").hidden = false;
-
         document.getElementById("tavernResult").textContent =
           day + "日目の酒場を営業しています。";
 
         document.getElementById("activeMenu").textContent =
           menuToText(todaysMenu);
 
-        document.getElementById("talkCount").textContent =
-          "会話：0 / " + adventurers.length + "人";
+        updateHandledCount();
 
         document.getElementById("allTalkedMessage").hidden = true;
         document.getElementById("endDayButton").disabled = true;
         document.getElementById("endDayButton").textContent =
-          "1日を終える（会話完了後）";
+          "1日を終える（全員の対応後）";
 
         addLog(
           day + "日目：酒場の営業を開始。料理「" +
           todaysMenu.dish.name + "」、飲み物「" +
           todaysMenu.drink.name + "」。"
         );
-        addLog("最初の冒険者「" + adventurers[0].name + "」が来店。");
 
+        // 画面を営業中に切り替えてから、最初の冒険者を迎える
         updateStatus();
+        showAdventurer(0);
       } catch (error) {
         console.error(error);
         showPrepMessage("営業開始でエラーが起きました：" + error.message);
@@ -1112,11 +1178,6 @@
     function discoverMultiple(adventurer, count) {
       const messages = [];
 
-      if (count <= 0) {
-        messages.push("今日は聞き出せることがなかった。");
-        return messages;
-      }
-
       for (let i = 0; i < count; i++) {
         const result = discoverInformation(adventurer);
 
@@ -1130,6 +1191,10 @@
         messages.push(result.message);
       }
 
+      if (messages.length === 0) {
+        messages.push("今日は聞き出せることがなかった。");
+      }
+
       return messages;
     }
 
@@ -1141,22 +1206,21 @@
       if (!adventurer) return;
 
       const button = document.getElementById("talkButton" + index);
-      if (button.disabled) return;
+      if (button.disabled || button.hidden) return;
+
+      // 念のため、会話できる相性かを再確認する
+      const evaluation = evaluateMenu(adventurer, todaysMenu);
+      if (!evaluation.canTalk) return;
 
       button.disabled = true;
       button.textContent = "会話済み";
 
-      // メニューとの相性で、得られる情報の数が変わる
-      const evaluation = evaluateMenu(adventurer, todaysMenu);
       const infoCount = INFO_COUNT_BY_LEVEL[evaluation.level];
       const messages = discoverMultiple(adventurer, infoCount);
 
       const dialogue = document.getElementById("dialogue" + index);
       dialogue.textContent =
         adventurer.dialogue +
-        "\n\n【料理と酒の反応】\n" +
-        adventurer.name + "は" + LEVEL_REACTIONS[evaluation.level] +
-        "\n（満足度：" + LEVEL_LABELS[evaluation.level] + "）" +
         "\n\n【会話から得た情報】\n" +
         messages.join("\n");
       dialogue.hidden = false;
@@ -1166,65 +1230,52 @@
         document.getElementById("info" + index)
       );
 
-      talkCount++;
-
-      document.getElementById("talkCount").textContent =
-        "会話：" + talkCount + " / " + adventurers.length + "人";
+      handledCount++;
+      updateHandledCount();
 
       const nextButton = document.getElementById("nextButton" + index);
       nextButton.textContent =
-        talkCount === adventurers.length
-          ? "会話を終了する"
+        handledCount === adventurers.length
+          ? "全員の対応を終える"
           : "次の冒険者へ";
       nextButton.hidden = false;
 
       addLog(
         day + "日目：" + adventurer.name +
-        "と会話。（テスト表示）メニューとの一致：" +
-        evaluation.score + "/" + evaluation.max +
-        "、満足度：" + LEVEL_LABELS[evaluation.level] +
-        "。情報収集：「" + messages.join(" / ") + "」"
+        "と会話。情報収集：「" + messages.join(" / ") + "」"
       );
     }
 
     function nextAdventurer(index) {
       if (phase !== "tavern") return;
       if (index !== currentAdventurerIndex) return;
-      if (talkCount <= index) return;
+      if (handledCount <= index) return;
 
       document.getElementById("adventurerCard" + index).hidden = true;
 
-      if (talkCount >= adventurers.length) {
+      if (handledCount >= adventurers.length) {
         document.getElementById("allTalkedMessage").hidden = false;
         document.getElementById("endDayButton").disabled = false;
         document.getElementById("endDayButton").textContent = "1日を終える";
 
-        addLog(day + "日目：全員との会話が終了。");
+        addLog(day + "日目：全員への対応が終了。");
         return;
       }
 
       currentAdventurerIndex++;
-
-      const next = adventurers[currentAdventurerIndex];
-      document.getElementById(
-        "adventurerCard" + currentAdventurerIndex
-      ).hidden = false;
-
-      addLog(
-        day + "日目：次の冒険者「" + next.name + "」が来店。"
-      );
+      showAdventurer(currentAdventurerIndex);
     }
 
     function endDay() {
       if (phase !== "tavern") return;
-      if (talkCount < adventurers.length) return;
+      if (handledCount < adventurers.length) return;
       if (document.getElementById("endDayButton").disabled) return;
 
       addLog(day + "日目：営業を終了。");
 
       day++;
       phase = "morning";
-      talkCount = 0;
+      handledCount = 0;
       currentAdventurerIndex = 0;
 
       document.getElementById("morningResult").textContent =
