@@ -14,6 +14,19 @@
       "bravery": "brave",
       "judgment": "intuition"
     },
+    "preferences": {
+      "dish": {
+        "main": "肉",
+        "richness": "こってり",
+        "cooking": "焼き物",
+        "style": "大胆"
+      },
+      "drink": {
+        "type": "穀物",
+        "alcohol": "高",
+        "smell": "強"
+      }
+    },
     "purpose": "討伐依頼",
     "impression": "討伐の話に興味があるようだ。",
     "dialogue": "レオン「最近、北の街道に魔物が出るらしい。討伐依頼があれば受けてみたいな。」"
@@ -33,6 +46,19 @@
       "bravery": "cautious",
       "judgment": "deliberation"
     },
+    "preferences": {
+      "dish": {
+        "main": "穀物",
+        "richness": "あっさり",
+        "cooking": "汁物",
+        "style": "繊細"
+      },
+      "drink": {
+        "type": "果実",
+        "alcohol": "低",
+        "smell": "強"
+      }
+    },
     "purpose": "採取・植物",
     "impression": "採取や植物の話に詳しそうだ。",
     "dialogue": "ミリア「森の奥で珍しい薬草を見つけたの。採取の依頼があれば、ぜひ教えてほしいわ。」"
@@ -51,6 +77,19 @@
     "personality": {
       "bravery": "normal",
       "judgment": "normal"
+    },
+    "preferences": {
+      "dish": {
+        "main": "肉",
+        "richness": "普通",
+        "cooking": "煮込み",
+        "style": "標準"
+      },
+      "drink": {
+        "type": "穀物",
+        "alcohol": "高",
+        "smell": "普通"
+      }
     },
     "purpose": "酒・装備",
     "impression": "酒や装備の話をしたそうだ。",
