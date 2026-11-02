@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.12</title>
+  <title>酒場経営ゲーム 試作品0.13</title>
   <style>
     body {
       font-family: sans-serif;
@@ -79,7 +79,7 @@
 </head>
 <body>
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.12</p>
+  <p>試作品 0.13</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -177,6 +177,34 @@
     // 特定の飲み物だけ持たせたい場合は、例：["barley_ale"]
     const INITIAL_OWNED_DRINK_IDS = [];
     let ownedDrinkIds = [];
+
+    // データ読み込み時の警告（読み込み後に記録へ出す）
+    const dataWarnings = [];
+
+    // ===== 相性（メニューと冒険者の好み）の設定 =====
+    // 一致数が HIGH_SCORE 以上なら満足度「高」、NORMAL_SCORE 以上なら「普通」、それ未満は「低」
+    const HIGH_SCORE = 5;
+    const NORMAL_SCORE = 3;
+
+    // 満足度ごとに、会話で得られる情報の数
+    const INFO_COUNT_BY_LEVEL = {
+      high: 2,
+      normal: 1,
+      low: 0
+    };
+
+    const LEVEL_LABELS = {
+      high: "高",
+      normal: "普通",
+      low: "低"
+    };
+
+    // 満足度ごとの反応の文
+    const LEVEL_REACTIONS = {
+      high: "料理も酒もとても気に入った様子で、上機嫌で話してくれた。",
+      normal: "料理と酒を楽しみながら、ほどよく話してくれた。",
+      low: "料理と酒があまり口に合わないようだ。口が重い。"
+    };
 
     // 調査情報の保存先
     const SAVE_KEY = "tavernGame_knowledge_v09";
@@ -294,10 +322,33 @@
     const validBravery = ["brave", "normal", "cautious"];
     const validJudgment = ["intuition", "normal", "deliberation"];
 
+    // 料理の値の一覧
+    const validDishValues = {
+      main: ["肉", "魚", "穀物"],
+      richness: ["こってり", "普通", "あっさり"],
+      cooking: ["焼き物", "汁物", "煮込み", "生"],
+      style: ["繊細", "標準", "大胆"]
+    };
+
+    const dishFieldLabels = {
+      main: "食材",
+      richness: "味の重さ",
+      cooking: "調理法",
+      style: "味付け"
+    };
+
     // 飲み物の値の一覧
-    const validDrinkTypes = ["穀物", "果実", "その他"];
-    const validDrinkAlcohol = ["高", "普通", "低", "なし"];
-    const validDrinkSmell = ["強", "普通", "弱"];
+    const validDrinkValues = {
+      type: ["穀物", "果実", "その他"],
+      alcohol: ["高", "普通", "低", "なし"],
+      smell: ["強", "普通", "弱"]
+    };
+
+    const drinkFieldLabels = {
+      type: "種類",
+      alcohol: "アルコール度数",
+      smell: "香り"
+    };
 
     async function loadAdventurers() {
       const response = await fetch("./data/adventurers.json");
@@ -364,6 +415,41 @@
         if (!validJudgment.includes(a.personality.judgment)) {
           throw new Error(a.name + "の判断傾向の設定が不正です。");
         }
+
+        // 料理・酒の好みのチェック
+        if (
+          !a.preferences ||
+          !a.preferences.dish ||
+          !a.preferences.drink
+        ) {
+          throw new Error(
+            a.name + "に preferences（dish と drink）がありません。"
+          );
+        }
+
+        Object.keys(validDishValues).forEach(function(key) {
+          const value = a.preferences.dish[key];
+
+          if (!validDishValues[key].includes(value)) {
+            throw new Error(
+              a.name + "の料理の好み（" + dishFieldLabels[key] +
+              "）が不正です：" + value +
+              "（" + validDishValues[key].join("、") + "のいずれか）"
+            );
+          }
+        });
+
+        Object.keys(validDrinkValues).forEach(function(key) {
+          const value = a.preferences.drink[key];
+
+          if (!validDrinkValues[key].includes(value)) {
+            throw new Error(
+              a.name + "の酒の好み（" + drinkFieldLabels[key] +
+              "）が不正です：" + value +
+              "（" + validDrinkValues[key].join("、") + "のいずれか）"
+            );
+          }
+        });
       });
 
       // 現在存在しない冒険者の古いデータは削除
@@ -412,6 +498,17 @@
           throw new Error("料理IDが重複しています：" + d.id);
         }
         ids.add(d.id);
+
+        // 好みと照合できない値は、エラーにせず警告だけ出す
+        Object.keys(validDishValues).forEach(function(key) {
+          if (!validDishValues[key].includes(d[key])) {
+            dataWarnings.push(
+              "料理「" + d.name + "」の" + dishFieldLabels[key] +
+              "「" + d[key] + "」は、冒険者の好みと一致しない値です（" +
+              validDishValues[key].join("、") + "のいずれかにすると照合されます）。"
+            );
+          }
+        });
       });
 
       dishes = data;
@@ -509,26 +606,14 @@
         }
         ids.add(d.id);
 
-        if (!validDrinkTypes.includes(d.type)) {
-          throw new Error(
-            d.name + "の type が不正です：" + d.type +
-            "（穀物、果実、その他のいずれか）"
-          );
-        }
-
-        if (!validDrinkAlcohol.includes(d.alcohol)) {
-          throw new Error(
-            d.name + "の alcohol が不正です：" + d.alcohol +
-            "（高、普通、低、なしのいずれか）"
-          );
-        }
-
-        if (!validDrinkSmell.includes(d.smell)) {
-          throw new Error(
-            d.name + "の smell が不正です：" + d.smell +
-            "（強、普通、弱のいずれか）"
-          );
-        }
+        Object.keys(validDrinkValues).forEach(function(key) {
+          if (!validDrinkValues[key].includes(d[key])) {
+            throw new Error(
+              d.name + "の " + key + " が不正です：" + d[key] +
+              "（" + validDrinkValues[key].join("、") + "のいずれか）"
+            );
+          }
+        });
       });
 
       drinks = data;
@@ -590,6 +675,40 @@
         "種類：" + drink.type + "系\n" +
         "アルコール度数：" + drink.alcohol + "\n" +
         "香り：" + drink.smell;
+    }
+
+    // メニューと冒険者の好みの相性を調べる
+    // 料理4項目＋酒3項目のうち、一致した数を数える
+    function evaluateMenu(adventurer, menu) {
+      let score = 0;
+      let max = 0;
+
+      Object.keys(validDishValues).forEach(function(key) {
+        max++;
+        if (menu.dish[key] === adventurer.preferences.dish[key]) {
+          score++;
+        }
+      });
+
+      Object.keys(validDrinkValues).forEach(function(key) {
+        max++;
+        if (menu.drink[key] === adventurer.preferences.drink[key]) {
+          score++;
+        }
+      });
+
+      let level = "low";
+      if (score >= HIGH_SCORE) {
+        level = "high";
+      } else if (score >= NORMAL_SCORE) {
+        level = "normal";
+      }
+
+      return {
+        score: score,
+        max: max,
+        level: level
+      };
     }
 
     function getFieldValue(adventurer, field) {
@@ -935,6 +1054,7 @@
       });
     }
 
+    // 調査情報を1項目だけ進める
     function discoverInformation(adventurer) {
       const available = getAvailableFields(adventurer);
 
@@ -988,6 +1108,31 @@
       };
     }
 
+    // 満足度に応じた数だけ、調査情報を進める
+    function discoverMultiple(adventurer, count) {
+      const messages = [];
+
+      if (count <= 0) {
+        messages.push("今日は聞き出せることがなかった。");
+        return messages;
+      }
+
+      for (let i = 0; i < count; i++) {
+        const result = discoverInformation(adventurer);
+
+        if (result.field === null) {
+          if (messages.length === 0) {
+            messages.push(result.message);
+          }
+          break;
+        }
+
+        messages.push(result.message);
+      }
+
+      return messages;
+    }
+
     function talkTo(index) {
       if (phase !== "tavern") return;
       if (index !== currentAdventurerIndex) return;
@@ -1001,13 +1146,19 @@
       button.disabled = true;
       button.textContent = "会話済み";
 
-      const discovery = discoverInformation(adventurer);
+      // メニューとの相性で、得られる情報の数が変わる
+      const evaluation = evaluateMenu(adventurer, todaysMenu);
+      const infoCount = INFO_COUNT_BY_LEVEL[evaluation.level];
+      const messages = discoverMultiple(adventurer, infoCount);
 
       const dialogue = document.getElementById("dialogue" + index);
       dialogue.textContent =
         adventurer.dialogue +
+        "\n\n【料理と酒の反応】\n" +
+        adventurer.name + "は" + LEVEL_REACTIONS[evaluation.level] +
+        "\n（満足度：" + LEVEL_LABELS[evaluation.level] + "）" +
         "\n\n【会話から得た情報】\n" +
-        discovery.message;
+        messages.join("\n");
       dialogue.hidden = false;
 
       renderAdventurerInfo(
@@ -1029,7 +1180,10 @@
 
       addLog(
         day + "日目：" + adventurer.name +
-        "と会話。情報収集：「" + discovery.message + "」"
+        "と会話。（テスト表示）メニューとの一致：" +
+        evaluation.score + "/" + evaluation.max +
+        "、満足度：" + LEVEL_LABELS[evaluation.level] +
+        "。情報収集：「" + messages.join(" / ") + "」"
       );
     }
 
@@ -1107,6 +1261,10 @@
         updateMenuPreview();
         updateStatus();
         addLog("冒険者・料理・飲み物のデータを読み込みました。");
+
+        dataWarnings.forEach(function(warning) {
+          addLog("【データ警告】" + warning);
+        });
 
         const savedCount = Object.values(knowledge).reduce(
           function(total, adventurerData) {
