@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.16</title>
+  <title>酒場経営ゲーム 試作品0.17</title>
   <style>
     body {
       font-family: sans-serif;
@@ -113,7 +113,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.16</p>
+  <p>試作品 0.17</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -414,7 +414,7 @@
         if (error instanceof SyntaxError) {
           throw new Error(
             label + "データのJSON形式が正しくありません。" +
-            "カンマの抜けや余分なカンマ、\"の閉じ忘れを確認してください。" +
+            "カンマの抜けや余分なカンマ、ダブルクォートの閉じ忘れを確認してください。" +
             "（" + error.message + "）"
           );
         }
@@ -1399,21 +1399,7 @@
       }
     }
 
-    // このスクリプトが最後まで読み込まれたことの目印
-    window.gameScriptLoaded = true;
-
     initGame();
-  </script>
-
-  <!-- スクリプトが最後まで動いたかの確認 -->
-  <script>
-    if (!window.gameScriptLoaded) {
-      showFatalError(
-        "ゲームのスクリプトが最後まで読み込まれていません。\n" +
-        "index.html のコピーが途中で切れているか、文法エラーがある可能性があります。\n" +
-        "ファイルの最後が「initGame();」「</script>」「</body>」「</html>」で終わっているか確認してください。"
-      );
-    }
   </script>
 </body>
 </html>
