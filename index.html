@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.17</title>
+  <title>酒場経営ゲーム 試作品0.18</title>
   <style>
     body {
       font-family: sans-serif;
@@ -113,7 +113,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.17</p>
+  <p>試作品 0.18</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -219,9 +219,12 @@
 
     // ===== 相性（メニューと冒険者の好み）の設定 =====
     // 一致数が HIGH_SCORE 以上なら満足度「高」、NORMAL_SCORE 以上なら「普通」、それ未満は「低」
-    // 満足度「低」の冒険者とは会話できない
+    // 満足度「低」の冒険者とは会話できない（料理も食べない）
     const HIGH_SCORE = 5;
     const NORMAL_SCORE = 3;
+
+    // 冒険者が来店したとき、料理の好みを何項目ぶん話してくれるか
+    const FOOD_HINT_COUNT = 1;
 
     // 満足度ごとに、会話で得られる情報の数（「低」は会話なしなので不要）
     const INFO_COUNT_BY_LEVEL = {
@@ -240,6 +243,36 @@
       high: "は料理も酒もとても気に入った様子だ。上機嫌で、いろいろ話してくれそうだ。",
       normal: "は料理と酒を楽しんでいる。話しかけられそうだ。",
       low: "は料理と酒が口に合わないようだ。話す気にはなれないらしく、そっぽを向いている。"
+    };
+
+    // 料理の好みに関するセリフ
+    // likeAte：食べる・好みに合う項目 ／ dislikeAte：食べる・好みに合わない項目
+    // dislikeSkip：食べない・好みに合わない項目 ／ likeSkip：食べない・好みに合う項目
+    const FOOD_HINT_TEXTS = {
+      likeAte: {
+        main: function(v) { return v + "は好きなんだよ。"; },
+        richness: function(v) { return "味の重さが「" + v + "」なのは、ちょうどいいな。"; },
+        cooking: function(v) { return v + "は好きな調理法なんだ。"; },
+        style: function(v) { return "この「" + v + "」の味付けは、好みだな。"; }
+      },
+      dislikeAte: {
+        main: function(v) { return "食べるけど、" + v + "はあまり好みじゃないな。"; },
+        richness: function(v) { return "食べるけど、味の重さが「" + v + "」なのはあまり好みじゃないな。"; },
+        cooking: function(v) { return "食べるけど、" + v + "はあまり好きな調理法じゃないな。"; },
+        style: function(v) { return "食べるけど、この「" + v + "」の味付けはあまり好みじゃないな。"; }
+      },
+      dislikeSkip: {
+        main: function(v) { return v + "は嫌いだ。"; },
+        richness: function(v) { return "味の重さが「" + v + "」なのは苦手だ。今回はやめておく。"; },
+        cooking: function(v) { return v + "は苦手な調理法だ。今回はやめておく。"; },
+        style: function(v) { return "「" + v + "」の味付けは口に合わない。今回はやめておく。"; }
+      },
+      likeSkip: {
+        main: function(v) { return v + "はうまそうなんだが…今回はいい。"; },
+        richness: function(v) { return "味の重さは「" + v + "」でちょうどいいんだが…今回はいい。"; },
+        cooking: function(v) { return v + "は好きな調理法なんだが…今回はいい。"; },
+        style: function(v) { return "この「" + v + "」の味付けはうまそうなんだが…今回はいい。"; }
+      }
     };
 
     // 調査情報の保存先
@@ -305,6 +338,28 @@
       }
     }
 
+    // 候補が1つだけ残ったら、その値を好みとして確定する
+    // 確定した値を返す（確定しなかった場合は null）
+    function resolveFoodEntry(key, entry) {
+      const values = validDishValues[key];
+
+      if (
+        entry.liked === null &&
+        entry.excluded.length === values.length - 1
+      ) {
+        const remaining = values.filter(function(v) {
+          return !entry.excluded.includes(v);
+        });
+
+        if (remaining.length === 1) {
+          entry.liked = remaining[0];
+          return remaining[0];
+        }
+      }
+
+      return null;
+    }
+
     // 保存データが空のときに、各冒険者の調査段階を0で初期化する
     function loadKnowledgeDefaults() {
       adventurers.forEach(function(a) {
@@ -323,6 +378,40 @@
             knowledge[a.id][field.key] = 0;
           }
         });
+
+        // 料理の好みの調査状況（liked：好みと判明した値、excluded：好みではないと分かった値）
+        const savedFood = knowledge[a.id].foodPref;
+        const foodPref = {};
+
+        Object.keys(validDishValues).forEach(function(key) {
+          const values = validDishValues[key];
+
+          let savedEntry = {};
+          if (
+            savedFood &&
+            typeof savedFood === "object" &&
+            savedFood[key] &&
+            typeof savedFood[key] === "object"
+          ) {
+            savedEntry = savedFood[key];
+          }
+
+          const liked = values.includes(savedEntry.liked)
+            ? savedEntry.liked
+            : null;
+
+          let excluded = [];
+          if (Array.isArray(savedEntry.excluded)) {
+            excluded = savedEntry.excluded.filter(function(v, i, arr) {
+              return values.includes(v) && arr.indexOf(v) === i;
+            });
+          }
+
+          foodPref[key] = { liked: liked, excluded: excluded };
+          resolveFoodEntry(key, foodPref[key]);
+        });
+
+        knowledge[a.id].foodPref = foodPref;
       });
     }
 
@@ -770,6 +859,81 @@
       };
     }
 
+    // 今回の料理で、まだ好みが分からない項目を返す
+    // （好みが判明済み、またはこの値が好みでないと分かっている項目は除く）
+    function getRevealableFoodKeys(adventurer, dish) {
+      return Object.keys(validDishValues).filter(function(key) {
+        const entry = knowledge[adventurer.id].foodPref[key];
+        const served = dish[key];
+
+        if (!validDishValues[key].includes(served)) return false;
+        if (entry.liked !== null) return false;
+        if (entry.excluded.includes(served)) return false;
+
+        return true;
+      });
+    }
+
+    // 料理の好みを1項目だけ判明させる。判明できる項目がなければ null
+    // ate：その冒険者が料理を食べるかどうか
+    function discoverFoodPreference(adventurer, dish, ate) {
+      const keys = getRevealableFoodKeys(adventurer, dish);
+
+      if (keys.length === 0) {
+        return null;
+      }
+
+      const key = keys[Math.floor(Math.random() * keys.length)];
+      const entry = knowledge[adventurer.id].foodPref[key];
+      const served = dish[key];
+      const label = dishFieldLabels[key];
+      const matched = adventurer.preferences.dish[key] === served;
+
+      let kind = "";
+      let summary = "";
+
+      if (matched) {
+        entry.liked = served;
+        kind = ate ? "likeAte" : "likeSkip";
+        summary = label + "の好みが「" + served + "」だと判明した。";
+      } else {
+        entry.excluded.push(served);
+        kind = ate ? "dislikeAte" : "dislikeSkip";
+        summary = label + "は「" + served + "」が好みではないと分かった。";
+
+        const resolved = resolveFoodEntry(key, entry);
+        if (resolved !== null) {
+          summary += "残る候補から、" + label +
+            "の好みは「" + resolved + "」に確定した。";
+        }
+      }
+
+      saveKnowledge();
+
+      return {
+        key: key,
+        text: FOOD_HINT_TEXTS[kind][key](served),
+        summary: summary
+      };
+    }
+
+    // 料理の好みの表示（判明済みなら値、×だけ分かっているなら「値×」、何も分からなければ不明）
+    function getFoodPrefDisplay(adventurer, key) {
+      const entry = knowledge[adventurer.id].foodPref[key];
+
+      if (entry.liked !== null) {
+        return entry.liked;
+      }
+
+      if (entry.excluded.length > 0) {
+        return entry.excluded.map(function(v) {
+          return v + "×";
+        }).join("、");
+      }
+
+      return "不明";
+    }
+
     function getFieldValue(adventurer, field) {
       if (field.key in adventurer.abilities) {
         return adventurer.abilities[field.key];
@@ -863,6 +1027,18 @@
         const line = document.createElement("p");
         line.textContent =
           field.label + "：" + getFieldDisplay(adventurer, field);
+        container.appendChild(line);
+      });
+
+      const foodHeading = document.createElement("p");
+      foodHeading.textContent = "料理の好み";
+      foodHeading.style.fontWeight = "bold";
+      container.appendChild(foodHeading);
+
+      Object.keys(validDishValues).forEach(function(key) {
+        const line = document.createElement("p");
+        line.textContent =
+          dishFieldLabels[key] + "：" + getFoodPrefDisplay(adventurer, key);
         container.appendChild(line);
       });
     }
@@ -1033,20 +1209,48 @@
     }
 
     // 冒険者が来店したときの処理
-    // まず料理と酒が好みに合うかを判定し、
-    // 合えば「話しかける」ボタンを出し、合わなければ会話なしで次へ進める
+    // 1. 料理と酒が好みに合うか判定する（合えば食べる、合わなければ食べない）
+    // 2. 料理の好みのうち、まだ分からない項目を1つ話してくれる
+    // 3. 食べる場合は「話しかける」ボタン、食べない場合は会話なしで次へ
     function showAdventurer(index) {
       const adventurer = adventurers[index];
       const evaluation = evaluateMenu(adventurer, todaysMenu);
 
       document.getElementById("adventurerCard" + index).hidden = false;
 
-      const reaction = document.getElementById("reaction" + index);
-      reaction.textContent =
+      // 料理の好みの調査
+      const hints = [];
+      for (let i = 0; i < FOOD_HINT_COUNT; i++) {
+        const hint = discoverFoodPreference(
+          adventurer,
+          todaysMenu.dish,
+          evaluation.canTalk
+        );
+
+        if (hint === null) break;
+        hints.push(hint);
+      }
+
+      let reactionText =
         "【料理と酒の反応】\n" +
         adventurer.name + LEVEL_REACTIONS[evaluation.level] +
         "\n（満足度：" + LEVEL_LABELS[evaluation.level] + "）";
+
+      if (hints.length > 0) {
+        reactionText += "\n\n" + hints.map(function(hint) {
+          return adventurer.name + "「" + hint.text + "」\n→ " + hint.summary;
+        }).join("\n\n");
+      }
+
+      const reaction = document.getElementById("reaction" + index);
+      reaction.textContent = reactionText;
       reaction.hidden = false;
+
+      // 判明した好みを、冒険者の情報に反映する
+      renderAdventurerInfo(
+        adventurer,
+        document.getElementById("info" + index)
+      );
 
       const talkButton = document.getElementById("talkButton" + index);
       const nextButton = document.getElementById("nextButton" + index);
@@ -1075,8 +1279,15 @@
         "が来店。（テスト表示）メニューとの一致：" +
         evaluation.score + "/" + evaluation.max +
         "、満足度：" + LEVEL_LABELS[evaluation.level] +
-        (evaluation.canTalk ? "。会話できる。" : "。会話なし。")
+        (evaluation.canTalk ? "。食べる・会話できる。" : "。食べない・会話なし。")
       );
+
+      hints.forEach(function(hint) {
+        addLog(
+          day + "日目：" + adventurer.name +
+          "の料理の好み：" + hint.summary
+        );
+      });
     }
 
     function openTavern() {
@@ -1373,7 +1584,7 @@
           function(total, adventurerData) {
             return total + Object.values(adventurerData).filter(
               function(stage) {
-                return stage > 0;
+                return typeof stage === "number" && stage > 0;
               }
             ).length;
           },
