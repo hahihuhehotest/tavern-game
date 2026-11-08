@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.19</title>
+  <title>酒場経営ゲーム 試作品0.20</title>
   <style>
     body {
       font-family: sans-serif;
@@ -113,7 +113,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.19</p>
+  <p>試作品 0.20</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -134,8 +134,7 @@
   <section id="morningSection" hidden>
     <h2>朝の行動</h2>
     <p>今日の行動を1つ選んでください。</p>
-    <button onclick="morning('市場')">市場へ行く</button>
-    <button onclick="morning('開拓本部')">開拓本部へ行く</button>
+    <div id="morningActions"></div>
     <p id="morningResult">今日の行動を選んでください。</p>
   </section>
 
@@ -217,14 +216,30 @@
     // データ読み込み時の警告（読み込み後に記録へ出す）
     const dataWarnings = [];
 
+    // ===== 朝の行動の設定 =====
+    // 毎日選べる行動（不要なものは、その行を消す）
+    const MORNING_ACTIONS = [
+      { label: "酒場で仕込みをする" },
+      { label: "市場に行く" },
+      { label: "商会に行く" },
+      { label: "広場に行く" },
+      { label: "開拓本部に行く" }
+    ];
+
+    // 日数が2の倍数の日だけ追加される行動
+    const EVEN_DAY_MORNING_ACTIONS = [
+      { label: "裏路地に行く" }
+    ];
+
     // ===== 相性（メニューと冒険者の好み）の設定 =====
     // 一致数が HIGH_SCORE 以上なら満足度「高」、NORMAL_SCORE 以上なら「普通」、それ未満は「低」
-    // 満足度「低」の冒険者とは会話できない（料理も食べない）
+    // 満足度「低」の冒険者とは会話できない（料理も食べず、酒も飲まない）
     const HIGH_SCORE = 5;
     const NORMAL_SCORE = 3;
 
-    // 冒険者が来店したとき、料理の好みを何項目ぶん話してくれるか
-    const FOOD_HINT_COUNT = 1;
+    // 冒険者が来店したとき、好みを何項目ぶん話してくれるか
+    // （料理か酒のどちらかの項目を、合計でこの数だけ話す）
+    const HINT_COUNT = 1;
 
     // 満足度ごとに、会話で得られる情報の数（「低」は会話なしなので不要）
     const INFO_COUNT_BY_LEVEL = {
@@ -245,74 +260,154 @@
       low: "は料理と酒が口に合わないようだ。話す気にはなれないらしく、そっぽを向いている。"
     };
 
-    // 料理の好みに関するセリフ（各項目に複数用意して、ランダムに選ぶ）
-    // 食材（main）だけ、食材の名前を言う。{v} の部分が食材の名前に置き換わる。
-    // それ以外の項目は、値（こってり等）は言わず、項目だけを話す。
-    // likeAte：食べる・好みに合う項目 ／ dislikeAte：食べる・好みに合わない項目
-    // dislikeSkip：食べない・好みに合わない項目 ／ likeSkip：食べない・好みに合う項目
-    const FOOD_HINT_TEXTS = {
-      likeAte: {
-        main: [
-          "{v}は好きなんだよ。",
-          "{v}か。好物なんだ。"
-        ],
-        richness: [
-          "この味の重さは好みだな。",
-          "この重さ加減は、俺の好みに合う。"
-        ],
-        cooking: [
-          "こういう調理法は好きなんだ。",
-          "この仕立ては好みだな。"
-        ],
-        style: [
-          "この味付けは好きなんだ。",
-          "味付けが好みに合うよ。"
-        ]
+    // 好みに関するセリフ（各項目に複数用意して、ランダムに選ぶ）
+    // {v} の部分が、出した料理・酒の値に置き換わる（食材の名前を言うときだけ使う）。
+    // 食材以外の料理の項目と、酒の項目は、値そのものは言わず、項目だけを話す。
+    // likeAte：食べる・飲む／好みに合う項目 ／ dislikeAte：食べる・飲む／好みに合わない項目
+    // dislikeSkip：食べない・飲まない／好みに合わない項目 ／ likeSkip：食べない・飲まない／好みに合う項目
+    // 酒の度数と香りの「好みに合わない」セリフは、over（強すぎる）と under（物足りない）に分かれる。
+    const HINT_TEXTS = {
+      dish: {
+        likeAte: {
+          main: [
+            "{v}は好きなんだよ。",
+            "{v}か。好物なんだ。"
+          ],
+          richness: [
+            "この味の重さは好みだな。",
+            "この重さ加減は、好みに合うな。"
+          ],
+          cooking: [
+            "こういう調理法は好きなんだ。",
+            "この仕立ては好みだな。"
+          ],
+          style: [
+            "この味付けは好きなんだ。",
+            "味付けが好みに合うよ。"
+          ]
+        },
+        dislikeAte: {
+          main: [
+            "食べるけど、{v}はあまり好みじゃないな。",
+            "{v}か。食べるけど、あまり得意じゃないんだ。"
+          ],
+          richness: [
+            "食べるけど、この味の重さはあまり好みじゃないな。"
+          ],
+          cooking: [
+            "食べるけど、この調理法はあまり好みじゃないな。"
+          ],
+          style: [
+            "食べるけど、この味付けはあまり好みじゃないな。"
+          ]
+        },
+        dislikeSkip: {
+          main: [
+            "{v}は嫌いだ。",
+            "{v}は苦手でな。今回はやめておく。"
+          ],
+          richness: [
+            "この味の重さは苦手だ。今回はやめておく。"
+          ],
+          cooking: [
+            "この調理法は苦手だ。今回はやめておく。"
+          ],
+          style: [
+            "この味付けは口に合わないな。今回はやめておく。"
+          ]
+        },
+        likeSkip: {
+          main: [
+            "{v}はうまそうなんだが…今回はいい。"
+          ],
+          richness: [
+            "この味の重さは好きなんだが…今回はいい。"
+          ],
+          cooking: [
+            "この調理法は好きなんだが…今回はいい。"
+          ],
+          style: [
+            "この味付けはうまそうなんだが…今回はいい。"
+          ]
+        }
       },
-      dislikeAte: {
-        main: [
-          "食べるけど、{v}はあまり好みじゃないな。",
-          "{v}か。食べるけど、あまり得意じゃないんだ。"
-        ],
-        richness: [
-          "食べるけど、この味の重さはあまり好みじゃないな。"
-        ],
-        cooking: [
-          "食べるけど、この調理法はあまり好みじゃないな。"
-        ],
-        style: [
-          "食べるけど、この味付けはあまり好みじゃないな。"
-        ]
-      },
-      dislikeSkip: {
-        main: [
-          "{v}は嫌いだ。",
-          "{v}は苦手でな。今回はやめておく。"
-        ],
-        richness: [
-          "この味の重さは苦手だ。今回はやめておく。"
-        ],
-        cooking: [
-          "この調理法は苦手だ。今回はやめておく。"
-        ],
-        style: [
-          "この味付けは口に合わないな。今回はやめておく。"
-        ]
-      },
-      likeSkip: {
-        main: [
-          "{v}はうまそうなんだが…今回はいい。"
-        ],
-        richness: [
-          "この味の重さは好きなんだが…今回はいい。"
-        ],
-        cooking: [
-          "この調理法は好きなんだが…今回はいい。"
-        ],
-        style: [
-          "この味付けはうまそうなんだが…今回はいい。"
-        ]
+      drink: {
+        likeAte: {
+          type: [
+            "この系統の酒は好きなんだ。",
+            "こういう酒は好みだな。"
+          ],
+          alcohol: [
+            "この度数は好みだな。",
+            "酒の強さは好みに合うよ。"
+          ],
+          smell: [
+            "この酒の香りは好みだな。",
+            "この香りは好きなんだ。"
+          ]
+        },
+        dislikeAte: {
+          type: [
+            "飲むけど、この系統の酒はあまり好みじゃないな。"
+          ],
+          alcohol: {
+            over: [
+              "飲むけど、この酒は強すぎるな。",
+              "飲むけど、度数が高くてきついな。"
+            ],
+            under: [
+              "飲むけど、この酒は少し物足りないな。",
+              "飲むけど、もう少し強い酒のほうが好みだな。"
+            ]
+          },
+          smell: {
+            over: [
+              "飲むけど、この酒の香りは強すぎるな。"
+            ],
+            under: [
+              "飲むけど、この酒は香りが物足りないな。"
+            ]
+          }
+        },
+        dislikeSkip: {
+          type: [
+            "この系統の酒は口に合わない。今回はやめておく。"
+          ],
+          alcohol: {
+            over: [
+              "この酒は強すぎる。今回はやめておく。"
+            ],
+            under: [
+              "この酒は物足りないな。今回はやめておく。"
+            ]
+          },
+          smell: {
+            over: [
+              "この酒の香りは強すぎる。今回はやめておく。"
+            ],
+            under: [
+              "この酒は香りが弱くて物足りない。今回はやめておく。"
+            ]
+          }
+        },
+        likeSkip: {
+          type: [
+            "この系統の酒は好きなんだが…今回はやめておく。"
+          ],
+          alcohol: [
+            "この度数は好みなんだが…今回はやめておく。"
+          ],
+          smell: [
+            "この酒の香りは好みなんだが…今回はやめておく。"
+          ]
+        }
       }
+    };
+
+    // 酒の度数と香りの強さの順番（弱い→強い）。「強すぎる／物足りない」の判定に使う
+    const DRINK_ORDER = {
+      alcohol: ["なし", "低", "普通", "高"],
+      smell: ["弱", "普通", "強"]
     };
 
     // 調査情報の保存先
@@ -380,9 +475,7 @@
 
     // 候補が1つだけ残ったら、その値を好みとして確定する
     // 確定した値を返す（確定しなかった場合は null）
-    function resolveFoodEntry(key, entry) {
-      const values = validDishValues[key];
-
+    function resolvePrefEntry(values, entry) {
       if (
         entry.liked === null &&
         entry.excluded.length === values.length - 1
@@ -419,39 +512,50 @@
           }
         });
 
-        // 料理の好みの調査状況（liked：好みと判明した値、excluded：好みではないと分かった値）
-        const savedFood = knowledge[a.id].foodPref;
-        const foodPref = {};
-
-        Object.keys(validDishValues).forEach(function(key) {
-          const values = validDishValues[key];
-
-          let savedEntry = {};
-          if (
-            savedFood &&
-            typeof savedFood === "object" &&
-            savedFood[key] &&
-            typeof savedFood[key] === "object"
-          ) {
-            savedEntry = savedFood[key];
+        // 性格（勇敢さ・判断傾向）は1回で確定するので、途中段階のものは確定に直す
+        personalityFields.forEach(function(field) {
+          if (knowledge[a.id][field.key] > 0) {
+            knowledge[a.id][field.key] = 3;
           }
-
-          const liked = values.includes(savedEntry.liked)
-            ? savedEntry.liked
-            : null;
-
-          let excluded = [];
-          if (Array.isArray(savedEntry.excluded)) {
-            excluded = savedEntry.excluded.filter(function(v, i, arr) {
-              return values.includes(v) && arr.indexOf(v) === i;
-            });
-          }
-
-          foodPref[key] = { liked: liked, excluded: excluded };
-          resolveFoodEntry(key, foodPref[key]);
         });
 
-        knowledge[a.id].foodPref = foodPref;
+        // 料理・酒の好みの調査状況
+        // liked：好みと判明した値、excluded：好みではないと分かった値
+        PREF_CATEGORY_NAMES.forEach(function(category) {
+          const info = PREF_CATEGORIES[category];
+          const savedStore = knowledge[a.id][info.storeKey];
+          const store = {};
+
+          Object.keys(info.values).forEach(function(key) {
+            const values = info.values[key];
+
+            let savedEntry = {};
+            if (
+              savedStore &&
+              typeof savedStore === "object" &&
+              savedStore[key] &&
+              typeof savedStore[key] === "object"
+            ) {
+              savedEntry = savedStore[key];
+            }
+
+            const liked = values.includes(savedEntry.liked)
+              ? savedEntry.liked
+              : null;
+
+            let excluded = [];
+            if (Array.isArray(savedEntry.excluded)) {
+              excluded = savedEntry.excluded.filter(function(v, i, arr) {
+                return values.includes(v) && arr.indexOf(v) === i;
+              });
+            }
+
+            store[key] = { liked: liked, excluded: excluded };
+            resolvePrefEntry(values, store[key]);
+          });
+
+          knowledge[a.id][info.storeKey] = store;
+        });
       });
     }
 
@@ -514,6 +618,32 @@
       alcohol: "アルコール度数",
       smell: "香り"
     };
+
+    // 好みの調査の対象（料理と酒）
+    // storeKey：調査状況を保存する名前、heading：冒険者の情報の見出し、prefix：判明メッセージの前につける言葉
+    const PREF_CATEGORIES = {
+      dish: {
+        storeKey: "foodPref",
+        values: validDishValues,
+        labels: dishFieldLabels,
+        heading: "料理の好み",
+        prefix: ""
+      },
+      drink: {
+        storeKey: "drinkPref",
+        values: validDrinkValues,
+        labels: drinkFieldLabels,
+        heading: "酒の好み",
+        prefix: "酒の"
+      }
+    };
+
+    const PREF_CATEGORY_NAMES = ["dish", "drink"];
+
+    // 配列からランダムに1つ選ぶ
+    function pickRandom(list) {
+      return list[Math.floor(Math.random() * list.length)];
+    }
 
     // JSONファイルを読み込む（10秒で打ち切り、失敗の理由を分かりやすく返す）
     async function fetchJson(path, label) {
@@ -899,14 +1029,16 @@
       };
     }
 
-    // 今回の料理で、まだ好みが分からない項目を返す
+    // 今回の料理（または酒）で、まだ好みが分からない項目を返す
     // （好みが判明済み、またはこの値が好みでないと分かっている項目は除く）
-    function getRevealableFoodKeys(adventurer, dish) {
-      return Object.keys(validDishValues).filter(function(key) {
-        const entry = knowledge[adventurer.id].foodPref[key];
-        const served = dish[key];
+    function getRevealablePrefKeys(adventurer, category, item) {
+      const info = PREF_CATEGORIES[category];
 
-        if (!validDishValues[key].includes(served)) return false;
+      return Object.keys(info.values).filter(function(key) {
+        const entry = knowledge[adventurer.id][info.storeKey][key];
+        const served = item[key];
+
+        if (!info.values[key].includes(served)) return false;
         if (entry.liked !== null) return false;
         if (entry.excluded.includes(served)) return false;
 
@@ -914,20 +1046,46 @@
       });
     }
 
-    // 料理の好みを1項目だけ判明させる。判明できる項目がなければ null
-    // ate：その冒険者が料理を食べるかどうか
-    function discoverFoodPreference(adventurer, dish, ate) {
-      const keys = getRevealableFoodKeys(adventurer, dish);
+    // セリフを作る。酒の度数・香りで好みに合わない場合は、強すぎる／物足りないを判定する
+    function buildHintText(category, kind, key, served, preferred) {
+      let templates = HINT_TEXTS[category][kind][key];
 
-      if (keys.length === 0) {
+      if (!Array.isArray(templates)) {
+        const order = DRINK_ORDER[key];
+        const direction =
+          order.indexOf(served) > order.indexOf(preferred) ? "over" : "under";
+        templates = templates[direction];
+      }
+
+      return pickRandom(templates).split("{v}").join(served);
+    }
+
+    // 好みを1項目だけ判明させる。料理か酒のどちらかから選ぶ。判明できる項目がなければ null
+    // ate：その冒険者が料理を食べ、酒を飲むかどうか
+    function discoverPreference(adventurer, menu, ate) {
+      const items = { dish: menu.dish, drink: menu.drink };
+
+      // 判明できる項目が残っている側（料理・酒）だけを候補にする
+      const candidates = PREF_CATEGORY_NAMES.filter(function(category) {
+        return getRevealablePrefKeys(
+          adventurer, category, items[category]
+        ).length > 0;
+      });
+
+      if (candidates.length === 0) {
         return null;
       }
 
-      const key = keys[Math.floor(Math.random() * keys.length)];
-      const entry = knowledge[adventurer.id].foodPref[key];
-      const served = dish[key];
-      const label = dishFieldLabels[key];
-      const matched = adventurer.preferences.dish[key] === served;
+      const category = pickRandom(candidates);
+      const info = PREF_CATEGORIES[category];
+      const keys = getRevealablePrefKeys(adventurer, category, items[category]);
+      const key = pickRandom(keys);
+
+      const entry = knowledge[adventurer.id][info.storeKey][key];
+      const served = items[category][key];
+      const preferred = adventurer.preferences[category][key];
+      const label = info.prefix + info.labels[key];
+      const matched = preferred === served;
 
       let kind = "";
       let summary = "";
@@ -941,7 +1099,7 @@
         kind = ate ? "dislikeAte" : "dislikeSkip";
         summary = label + "は「" + served + "」が好みではないと分かった。";
 
-        const resolved = resolveFoodEntry(key, entry);
+        const resolved = resolvePrefEntry(info.values[key], entry);
         if (resolved !== null) {
           summary += "残る候補から、" + label +
             "の好みは「" + resolved + "」に確定した。";
@@ -950,22 +1108,18 @@
 
       saveKnowledge();
 
-      // セリフは複数の言い回しからランダムに選ぶ
-      const templates = FOOD_HINT_TEXTS[kind][key];
-      const template = templates[
-        Math.floor(Math.random() * templates.length)
-      ];
-
       return {
+        category: category,
         key: key,
-        text: template.split("{v}").join(served),
+        text: buildHintText(category, kind, key, served, preferred),
         summary: summary
       };
     }
 
-    // 料理の好みの表示（判明済みなら値、×だけ分かっているなら「値×」、何も分からなければ不明）
-    function getFoodPrefDisplay(adventurer, key) {
-      const entry = knowledge[adventurer.id].foodPref[key];
+    // 好みの表示（判明済みなら値、×だけ分かっているなら「値×」、何も分からなければ不明）
+    function getPrefDisplay(adventurer, category, key) {
+      const info = PREF_CATEGORIES[category];
+      const entry = knowledge[adventurer.id][info.storeKey][key];
 
       if (entry.liked !== null) {
         return entry.liked;
@@ -1076,16 +1230,21 @@
         container.appendChild(line);
       });
 
-      const foodHeading = document.createElement("p");
-      foodHeading.textContent = "料理の好み";
-      foodHeading.style.fontWeight = "bold";
-      container.appendChild(foodHeading);
+      // 料理の好み・酒の好み
+      PREF_CATEGORY_NAMES.forEach(function(category) {
+        const info = PREF_CATEGORIES[category];
 
-      Object.keys(validDishValues).forEach(function(key) {
-        const line = document.createElement("p");
-        line.textContent =
-          dishFieldLabels[key] + "：" + getFoodPrefDisplay(adventurer, key);
-        container.appendChild(line);
+        const heading = document.createElement("p");
+        heading.textContent = info.heading;
+        heading.style.fontWeight = "bold";
+        container.appendChild(heading);
+
+        Object.keys(info.values).forEach(function(key) {
+          const line = document.createElement("p");
+          line.textContent =
+            info.labels[key] + "：" + getPrefDisplay(adventurer, category, key);
+          container.appendChild(line);
+        });
       });
     }
 
@@ -1169,6 +1328,33 @@
         "対応済み：" + handledCount + " / " + adventurers.length + "人";
     }
 
+    // 今日選べる朝の行動の一覧を返す
+    function getMorningActions() {
+      let list = MORNING_ACTIONS.slice();
+
+      if (day % 2 === 0) {
+        list = list.concat(EVEN_DAY_MORNING_ACTIONS);
+      }
+
+      return list;
+    }
+
+    // 朝の行動のボタンを作り直す
+    function renderMorningActions() {
+      const container = document.getElementById("morningActions");
+      container.replaceChildren();
+
+      getMorningActions().forEach(function(action) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = action.label;
+        button.addEventListener("click", function() {
+          morning(action.label);
+        });
+        container.appendChild(button);
+      });
+    }
+
     function updateStatus() {
       document.getElementById("day").textContent = day;
       document.getElementById("money").textContent = money;
@@ -1185,6 +1371,10 @@
       document.getElementById("preparationSection").hidden =
         phase !== "preparation";
       document.getElementById("tavernSection").hidden = phase !== "tavern";
+
+      if (phase === "morning") {
+        renderMorningActions();
+      }
     }
 
     function addLog(message) {
@@ -1210,8 +1400,9 @@
 
       phase = "preparation";
       document.getElementById("morningResult").textContent =
-        place + "で行動しました。";
+        "「" + place + "」を選びました。";
 
+      // 今は、どの行動も同じ効果（あとで行動ごとに変えられる）
       money += 100;
       reputation += 1;
 
@@ -1255,8 +1446,8 @@
     }
 
     // 冒険者が来店したときの処理
-    // 1. 料理と酒が好みに合うか判定する（合えば食べる、合わなければ食べない）
-    // 2. 料理の好みのうち、まだ分からない項目を1つ話してくれる
+    // 1. 料理と酒が好みに合うか判定する（合えば食べる・飲む、合わなければ食べない・飲まない）
+    // 2. 料理か酒のどちらかについて、まだ分からない好みを1項目話してくれる
     // 3. 食べる場合は「話しかける」ボタン、食べない場合は会話なしで次へ
     function showAdventurer(index) {
       const adventurer = adventurers[index];
@@ -1264,12 +1455,12 @@
 
       document.getElementById("adventurerCard" + index).hidden = false;
 
-      // 料理の好みの調査
+      // 好みの調査
       const hints = [];
-      for (let i = 0; i < FOOD_HINT_COUNT; i++) {
-        const hint = discoverFoodPreference(
+      for (let i = 0; i < HINT_COUNT; i++) {
+        const hint = discoverPreference(
           adventurer,
-          todaysMenu.dish,
+          todaysMenu,
           evaluation.canTalk
         );
 
@@ -1331,7 +1522,7 @@
       hints.forEach(function(hint) {
         addLog(
           day + "日目：" + adventurer.name +
-          "の料理の好み：" + hint.summary
+          "の好みの調査：" + hint.summary
         );
       });
     }
@@ -1430,6 +1621,7 @@
     }
 
     // 調査情報を1項目だけ進める
+    // 能力は段階的に絞られるが、性格（勇敢さ・判断傾向）は1回で確定する
     function discoverInformation(adventurer) {
       const available = getAvailableFields(adventurer);
 
@@ -1444,7 +1636,14 @@
         Math.floor(Math.random() * available.length)
       ];
 
-      knowledge[adventurer.id][field.key]++;
+      const isAbility = field.key in adventurer.abilities;
+
+      if (isAbility) {
+        knowledge[adventurer.id][field.key]++;
+      } else {
+        knowledge[adventurer.id][field.key] = 3;
+      }
+
       const stage = knowledge[adventurer.id][field.key];
       const display = getFieldDisplay(adventurer, field);
 
@@ -1453,7 +1652,7 @@
 
       let message = "";
 
-      if (field.key in adventurer.abilities) {
+      if (isAbility) {
         if (stage === 1) {
           message = field.label + "について、" + display +
             "くらいの力がありそうだと分かった。";
@@ -1465,16 +1664,8 @@
             display + " と判明した。";
         }
       } else {
-        if (stage === 1) {
-          message = field.label + "について話を聞いた。" +
-            display + "ようだ。";
-        } else if (stage === 2) {
-          message = "さらに話を聞き、" + field.label + "は" +
-            display + "だと分かってきた。";
-        } else {
-          message = field.label + "は「" + display +
-            "」だと確定した。";
-        }
+        const valueName = field.values[getFieldValue(adventurer, field)];
+        message = field.label + "は「" + valueName + "」だと確定した。";
       }
 
       return {
