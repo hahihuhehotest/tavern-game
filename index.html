@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.21</title>
+  <title>酒場経営ゲーム 試作品0.23</title>
   <style>
     body {
       font-family: sans-serif;
@@ -60,6 +60,55 @@
     .adventurer h3 { margin-top: 0; }
     .dialogue { margin-top: 10px; }
     .info-box p { margin: 5px 0; }
+
+    /* 好みの表 */
+    .pref-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin: 6px 0 10px;
+      font-size: 13px;
+      white-space: normal;
+    }
+    .pref-table th,
+    .pref-table td {
+      border: 1px solid #dfd0bb;
+      padding: 4px 2px;
+      text-align: center;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+    .pref-table th {
+      width: 22%;
+      background: #efe4d2;
+      font-weight: bold;
+    }
+    .pref-table td.pref-empty {
+      border: none;
+      background: transparent;
+    }
+    .pref-name {
+      display: block;
+      font-size: 11px;
+      color: #79552b;
+    }
+    .pref-score {
+      display: block;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    .rating-5 { background: #cfe9c6; }
+    .rating-4 { background: #e6f2d3; }
+    .rating-3 { background: #f4f0e6; }
+    .rating-m1 { background: #f8dcd6; }
+    .rating-m2 { background: #f0b8af; }
+    .rating-unknown { background: #fbf8f1; color: #9a8c78; }
+    .pref-legend {
+      font-size: 12px;
+      color: #79552b;
+      line-height: 1.6;
+    }
+
     #log {
       white-space: pre-line;
       line-height: 1.7;
@@ -113,7 +162,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.21</p>
+  <p>試作品 0.23</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -253,35 +302,26 @@
       "-2": "hate"
     };
 
-    // 料理の各項目の評価点の平均（酒も同様）が、これ以上なら注文する
-    // 料理と酒の「両方」が基準を満たしたときだけ注文する
+    // 料理（または酒）の各項目の評価点の平均が、これ以上なら注文する
+    // 料理と酒は別々に判定する
     const ORDER_AVERAGE = 2.5;
 
-    // 料理（または酒）の平均がこれ以上なら、「好みの料理」（「好みの酒」）と判定する
+    // 料理（または酒）の平均がこれ以上なら、「好物」と判定する
     const FAVORITE_AVERAGE = 3.5;
+
+    // 注文した料理（または酒）1つにつき、会話で情報が1項目進む。
+    // 進む段階の数は、普通なら NORMAL、好物なら FAVORITE（確定は3段階目）
+    const STAGE_ADVANCE_NORMAL = 1;
+    const STAGE_ADVANCE_FAVORITE = 2;
 
     // 冒険者が来店したとき、好みを何項目ぶん話してくれるか
     // （料理か酒のどちらかの項目を、合計でこの数だけ話す）
     const HINT_COUNT = 1;
 
-    // 満足度ごとに、会話で得られる情報の数
-    // high：好みの料理または酒がある ／ normal：注文したが好みの判定には届かない
-    // （注文しなかった冒険者とは会話できないので、low は不要）
-    const INFO_COUNT_BY_LEVEL = {
-      high: 2,
-      normal: 1
-    };
-
-    const LEVEL_LABELS = {
-      high: "高",
-      normal: "普通",
-      low: "低"
-    };
-
     // 好みに関するセリフ（各区分に複数用意して、ランダムに選ぶ）
     // {s}：話題にする項目（食材は食材の名前、それ以外は「この味付け」のような言い方）
     // {eat}：料理なら「食べる」、酒なら「飲む」
-    // ate：注文した場合 ／ skip：注文しなかった場合
+    // ate：その料理（酒）を注文した場合 ／ skip：注文しなかった場合
     const HINT_TEXTS = {
       ate: {
         love: [
@@ -577,11 +617,18 @@
 
     // 好みの対象（料理と酒）
     // storeKey：調査状況を保存する名前、heading：冒険者の情報の見出し、prefix：判明メッセージの前につける言葉
+    // tableLabels：好みの表の行の名前（スマホの幅に収まるよう短くしてある）
     const PREF_CATEGORIES = {
       dish: {
         storeKey: "foodPref",
         values: validDishValues,
         labels: dishFieldLabels,
+        tableLabels: {
+          main: "食材",
+          richness: "味の重さ",
+          cooking: "調理法",
+          style: "味付け"
+        },
         heading: "料理の好み",
         prefix: ""
       },
@@ -589,6 +636,11 @@
         storeKey: "drinkPref",
         values: validDrinkValues,
         labels: drinkFieldLabels,
+        tableLabels: {
+          type: "種類",
+          alcohol: "度数",
+          smell: "香り"
+        },
         heading: "酒の好み",
         prefix: "酒の"
       }
@@ -977,52 +1029,81 @@
     }
 
     // メニューと冒険者の好みの相性を調べる
-    // 料理と酒の平均が「両方」ORDER_AVERAGE 以上なら注文する
-    // 料理の平均が FAVORITE_AVERAGE 以上なら好みの料理、酒も同様に好みの酒
+    // 料理と酒を別々に判定する
+    //   平均が ORDER_AVERAGE 以上 → 注文する
+    //   平均が FAVORITE_AVERAGE 以上 → 好物
+    // どちらかでも注文すれば会話できる
+    // advances：会話で進む情報の段階（注文した料理・酒1つにつき1項目ぶん）
     function evaluateMenu(adventurer, menu) {
       const dishAverage = averageRating(adventurer, "dish", menu.dish);
       const drinkAverage = averageRating(adventurer, "drink", menu.drink);
 
-      const ordered =
-        dishAverage >= ORDER_AVERAGE && drinkAverage >= ORDER_AVERAGE;
-      const favoriteDish = dishAverage >= FAVORITE_AVERAGE;
-      const favoriteDrink = drinkAverage >= FAVORITE_AVERAGE;
+      const dishOrdered = dishAverage >= ORDER_AVERAGE;
+      const drinkOrdered = drinkAverage >= ORDER_AVERAGE;
+      const dishFavorite = dishAverage >= FAVORITE_AVERAGE;
+      const drinkFavorite = drinkAverage >= FAVORITE_AVERAGE;
 
-      let level = "low";
-      if (ordered) {
-        level = (favoriteDish || favoriteDrink) ? "high" : "normal";
+      const advances = [];
+
+      if (dishOrdered) {
+        advances.push(
+          dishFavorite ? STAGE_ADVANCE_FAVORITE : STAGE_ADVANCE_NORMAL
+        );
       }
+
+      if (drinkOrdered) {
+        advances.push(
+          drinkFavorite ? STAGE_ADVANCE_FAVORITE : STAGE_ADVANCE_NORMAL
+        );
+      }
+
+      const ordered = dishOrdered || drinkOrdered;
 
       return {
         dishAverage: dishAverage,
         drinkAverage: drinkAverage,
+        dishOrdered: dishOrdered,
+        drinkOrdered: drinkOrdered,
+        dishFavorite: dishFavorite,
+        drinkFavorite: drinkFavorite,
+        advances: advances,
         ordered: ordered,
-        favoriteDish: favoriteDish,
-        favoriteDrink: favoriteDrink,
-        level: level,
         canTalk: ordered
       };
+    }
+
+    // 料理（または酒）の状態を、言葉で返す（記録のテスト表示用）
+    function getItemStateLabel(ordered, favorite) {
+      if (!ordered) return "注文せず";
+      return favorite ? "好物" : "注文";
     }
 
     // 来店時の反応の文（冒険者の名前のあとに続く）
     function buildReactionLine(evaluation) {
       if (!evaluation.ordered) {
-        return "は料理か酒が口に合わなかったようだ。注文はせず、そっぽを向いている。";
+        return "は料理も酒も口に合わなかったようだ。注文はせず、そっぽを向いている。";
       }
 
-      if (evaluation.favoriteDish && evaluation.favoriteDrink) {
-        return "は料理も酒も大のお気に入りの様子だ。上機嫌で、いろいろ話してくれそうだ。";
+      let dishText = "料理が口に合わなかったようだ";
+      if (evaluation.dishOrdered) {
+        dishText = evaluation.dishFavorite
+          ? "料理が大のお気に入りの様子だ"
+          : "料理を注文した";
       }
 
-      if (evaluation.favoriteDish) {
-        return "は料理がとても気に入った様子だ。上機嫌で、いろいろ話してくれそうだ。";
+      let drinkText = "酒は口に合わなかったようだ";
+      if (evaluation.drinkOrdered) {
+        drinkText = evaluation.drinkFavorite
+          ? "酒が大のお気に入りの様子だ"
+          : "酒を注文した";
       }
 
-      if (evaluation.favoriteDrink) {
-        return "は酒がとても気に入った様子だ。上機嫌で、いろいろ話してくれそうだ。";
-      }
+      const anyFavorite = evaluation.dishFavorite || evaluation.drinkFavorite;
 
-      return "は料理と酒を注文した。話しかけられそうだ。";
+      return "は" + dishText + "。" + drinkText + "。" +
+        (anyFavorite
+          ? "上機嫌で、いろいろ話してくれそうだ。"
+          : "話しかけられそうだ。");
     }
 
     // 今回の料理（または酒）で、まだ評価が分からない項目を返す
@@ -1097,9 +1178,13 @@
     }
 
     // 好みを1項目だけ判明させる。料理か酒のどちらかから選ぶ。判明できる項目がなければ null
-    // ordered：その冒険者が注文したかどうか
-    function discoverPreference(adventurer, menu, ordered) {
+    // evaluation：その料理・酒を注文したかどうかの判定結果
+    function discoverPreference(adventurer, menu, evaluation) {
       const items = { dish: menu.dish, drink: menu.drink };
+      const orderedFlags = {
+        dish: evaluation.dishOrdered,
+        drink: evaluation.drinkOrdered
+      };
 
       // 判明できる項目が残っている側（料理・酒）だけを候補にする
       const candidates = PREF_CATEGORY_NAMES.filter(function(category) {
@@ -1127,21 +1212,87 @@
       return {
         category: category,
         key: key,
-        text: buildHintText(adventurer, category, key, served, rating, ordered),
+        text: buildHintText(
+          adventurer, category, key, served, rating, orderedFlags[category]
+        ),
         summary: label + "「" + served + "」は" +
-          getRatingLabel(rating) + "だと分かった。"
+          getRatingLabel(rating) + "（" + rating + "）だと分かった。"
       };
     }
 
-    // 好みの表示（例：肉＝大好き、魚＝？、穀物＝？）
-    function getPrefDisplay(adventurer, category, key) {
-      const info = PREF_CATEGORIES[category];
-      const entry = knowledge[adventurer.id][info.storeKey][key];
+    // 評価点に応じた、表のセルの色分け用のクラス名を返す（未判明は unknown）
+    function getRatingClass(rating) {
+      if (rating === null) return "rating-unknown";
+      return rating < 0 ? "rating-m" + (-rating) : "rating-" + rating;
+    }
 
-      return info.values[key].map(function(value) {
-        const rating = entry[value];
-        return value + "＝" + (rating === null ? "？" : getRatingLabel(rating));
-      }).join("、");
+    // 好みの表を作る（1行が1項目、セルに「値の名前」と「評価点」を出す）
+    // 例：食材 ｜ 肉 5 ｜ 魚 4 ｜ 穀物 ？
+    function createPrefTable(adventurer, category) {
+      const info = PREF_CATEGORIES[category];
+      const keys = Object.keys(info.values);
+
+      const table = document.createElement("table");
+      table.className = "pref-table";
+
+      // 一番多い値の数（足りない行は空のセルでそろえる）
+      let maxColumns = 0;
+      keys.forEach(function(key) {
+        maxColumns = Math.max(maxColumns, info.values[key].length);
+      });
+
+      keys.forEach(function(key) {
+        const row = document.createElement("tr");
+
+        const th = document.createElement("th");
+        th.textContent = info.tableLabels[key];
+        row.appendChild(th);
+
+        const entry = knowledge[adventurer.id][info.storeKey][key];
+
+        info.values[key].forEach(function(value) {
+          const rating = entry[value];
+
+          const td = document.createElement("td");
+          td.className = getRatingClass(rating);
+
+          const name = document.createElement("span");
+          name.className = "pref-name";
+          name.textContent = value;
+
+          const score = document.createElement("span");
+          score.className = "pref-score";
+          score.textContent = rating === null ? "？" : String(rating);
+
+          td.appendChild(name);
+          td.appendChild(score);
+          row.appendChild(td);
+        });
+
+        for (let i = info.values[key].length; i < maxColumns; i++) {
+          const empty = document.createElement("td");
+          empty.className = "pref-empty";
+          row.appendChild(empty);
+        }
+
+        table.appendChild(row);
+      });
+
+      return table;
+    }
+
+    // 評価点の見方（凡例）の文を作る
+    function createRatingLegend() {
+      const legend = document.createElement("p");
+      legend.className = "pref-legend";
+
+      const parts = VALID_RATINGS.map(function(rating) {
+        return rating + "：" + getRatingLabel(rating);
+      });
+      parts.push("？：未判明");
+
+      legend.textContent = "評価点　" + parts.join("　");
+      return legend;
     }
 
     function getFieldValue(adventurer, field) {
@@ -1240,7 +1391,7 @@
         container.appendChild(line);
       });
 
-      // 料理の好み・酒の好み
+      // 料理の好み・酒の好み（表で表示）
       PREF_CATEGORY_NAMES.forEach(function(category) {
         const info = PREF_CATEGORIES[category];
 
@@ -1249,13 +1400,10 @@
         heading.style.fontWeight = "bold";
         container.appendChild(heading);
 
-        Object.keys(info.values).forEach(function(key) {
-          const line = document.createElement("p");
-          line.textContent =
-            info.labels[key] + "：" + getPrefDisplay(adventurer, category, key);
-          container.appendChild(line);
-        });
+        container.appendChild(createPrefTable(adventurer, category));
       });
+
+      container.appendChild(createRatingLegend());
     }
 
     function renderAdventurers() {
@@ -1456,9 +1604,9 @@
     }
 
     // 冒険者が来店したときの処理
-    // 1. 料理と酒の評価点の平均を調べ、注文するかを決める
+    // 1. 料理と酒を別々に評価し、それぞれ注文するか・好物かを決める
     // 2. 料理か酒のどちらかについて、まだ分からない評価を1項目話してくれる
-    // 3. 注文した場合は「話しかける」ボタン、注文しなかった場合は会話なしで次へ
+    // 3. どちらかを注文した場合は「話しかける」ボタン、どちらも注文しなかった場合は会話なしで次へ
     function showAdventurer(index) {
       const adventurer = adventurers[index];
       const evaluation = evaluateMenu(adventurer, todaysMenu);
@@ -1468,11 +1616,7 @@
       // 好みの調査
       const hints = [];
       for (let i = 0; i < HINT_COUNT; i++) {
-        const hint = discoverPreference(
-          adventurer,
-          todaysMenu,
-          evaluation.ordered
-        );
+        const hint = discoverPreference(adventurer, todaysMenu, evaluation);
 
         if (hint === null) break;
         hints.push(hint);
@@ -1480,8 +1624,7 @@
 
       let reactionText =
         "【料理と酒の反応】\n" +
-        adventurer.name + buildReactionLine(evaluation) +
-        "\n（満足度：" + LEVEL_LABELS[evaluation.level] + "）";
+        adventurer.name + buildReactionLine(evaluation);
 
       if (hints.length > 0) {
         reactionText += "\n\n" + hints.map(function(hint) {
@@ -1524,10 +1667,16 @@
       addLog(
         day + "日目：" + adventurer.name +
         "が来店。（テスト表示）料理の平均：" +
-        evaluation.dishAverage.toFixed(2) +
-        "、酒の平均：" + evaluation.drinkAverage.toFixed(2) +
-        "、満足度：" + LEVEL_LABELS[evaluation.level] +
-        (evaluation.ordered ? "。注文する・会話できる。" : "。注文しない・会話なし。")
+        evaluation.dishAverage.toFixed(2) + "（" +
+        getItemStateLabel(evaluation.dishOrdered, evaluation.dishFavorite) +
+        "）、酒の平均：" +
+        evaluation.drinkAverage.toFixed(2) + "（" +
+        getItemStateLabel(evaluation.drinkOrdered, evaluation.drinkFavorite) +
+        "）。" +
+        (evaluation.canTalk
+          ? "会話できる。情報収集：" +
+            evaluation.advances.map(function(n) { return n + "段階"; }).join("・")
+          : "会話なし。")
       );
 
       hints.forEach(function(hint) {
@@ -1625,85 +1774,73 @@
       }
     }
 
+    // まだ確定していない（3段階に達していない）情報項目の一覧
     function getAvailableFields(adventurer) {
       return abilityFields.concat(personalityFields).filter(function(field) {
         return knowledge[adventurer.id][field.key] < 3;
       });
     }
 
-    // 調査情報を1項目だけ進める
-    // 能力は段階的に絞られるが、性格（勇敢さ・判断傾向）は1回で確定する
-    function discoverInformation(adventurer) {
-      const available = getAvailableFields(adventurer);
-
-      if (available.length === 0) {
-        return {
-          field: null,
-          message: "この冒険者について、能力と性格の情報はすべて判明している。"
-        };
-      }
-
-      const field = available[
-        Math.floor(Math.random() * available.length)
-      ];
-
+    // 情報項目を amount 段階だけ進める
+    // 確定（3段階）より先には進まない。性格（勇敢さ・判断傾向）は段階に関係なく1回で確定する
+    function advanceField(adventurer, field, amount) {
       const isAbility = field.key in adventurer.abilities;
+      const before = knowledge[adventurer.id][field.key];
 
+      let after = 3;
       if (isAbility) {
-        knowledge[adventurer.id][field.key]++;
-      } else {
-        knowledge[adventurer.id][field.key] = 3;
+        after = Math.min(3, before + amount);
       }
 
-      const stage = knowledge[adventurer.id][field.key];
-      const display = getFieldDisplay(adventurer, field);
+      knowledge[adventurer.id][field.key] = after;
 
       // 情報を更新した直後に保存
       saveKnowledge();
 
-      let message = "";
-
-      if (isAbility) {
-        if (stage === 1) {
-          message = field.label + "について、" + display +
-            "くらいの力がありそうだと分かった。";
-        } else if (stage === 2) {
-          message = field.label + "について、さらに話を聞いた。" +
-            "推定値が " + display + " に絞られた。";
-        } else {
-          message = field.label + "の正確な能力値が " +
-            display + " と判明した。";
-        }
-      } else {
+      if (!isAbility) {
         const valueName = field.values[getFieldValue(adventurer, field)];
-        message = field.label + "は「" + valueName + "」だと確定した。";
+        return field.label + "は「" + valueName + "」だと確定した。";
       }
 
-      return {
-        field: field,
-        message: message
-      };
+      const display = getFieldDisplay(adventurer, field);
+
+      if (after === 1) {
+        return field.label + "について、" + display +
+          "くらいの力がありそうだと分かった。";
+      }
+
+      if (after === 2) {
+        return field.label + "について、" +
+          (before === 0 ? "詳しく話を聞いた。" : "さらに話を聞いた。") +
+          "推定値が " + display + " に絞られた。";
+      }
+
+      return field.label + "の正確な能力値が " + display + " と判明した。";
     }
 
-    // 満足度に応じた数だけ、調査情報を進める
-    function discoverMultiple(adventurer, count) {
+    // advances（例：[1, 2]）の数だけ、別々の情報項目を、それぞれの段階ぶん進める
+    function discoverByAdvances(adventurer, advances) {
       const messages = [];
+      const available = getAvailableFields(adventurer);
 
-      for (let i = 0; i < count; i++) {
-        const result = discoverInformation(adventurer);
-
-        if (result.field === null) {
-          if (messages.length === 0) {
-            messages.push(result.message);
-          }
-          break;
-        }
-
-        messages.push(result.message);
+      // 進められる項目が足りないときは、大きい段階を優先して使う
+      const amounts = advances.slice();
+      if (available.length < amounts.length) {
+        amounts.sort(function(a, b) { return b - a; });
       }
 
+      amounts.forEach(function(amount) {
+        if (available.length === 0) return;
+
+        const pickedIndex = Math.floor(Math.random() * available.length);
+        const field = available[pickedIndex];
+        available.splice(pickedIndex, 1);
+
+        messages.push(advanceField(adventurer, field, amount));
+      });
+
       if (messages.length === 0) {
-        messages.push("今日は聞き出せることがなかった。");
+        messages.push("この冒険者について、能力と性格の情報はすべて判明している。");
       }
 
       return messages;
@@ -1719,15 +1856,14 @@
       const button = document.getElementById("talkButton" + index);
       if (button.disabled || button.hidden) return;
 
-      // 念のため、注文した相性かを再確認する
+      // 念のため、注文したかを再確認する
       const evaluation = evaluateMenu(adventurer, todaysMenu);
       if (!evaluation.canTalk) return;
 
       button.disabled = true;
       button.textContent = "会話済み";
 
-      const infoCount = INFO_COUNT_BY_LEVEL[evaluation.level];
-      const messages = discoverMultiple(adventurer, infoCount);
+      const messages = discoverByAdvances(adventurer, evaluation.advances);
 
       const dialogue = document.getElementById("dialogue" + index);
       dialogue.textContent =
