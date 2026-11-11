@@ -2,22 +2,33 @@
   {
     "id": "barley_ale",
     "name": "麦のエール",
-    "type": "穀物",
+    "type": "麦",
     "alcohol": "普通",
-    "smell": "普通"
+    "smell": "軽快",
+    "mouthfeel": "キレ"
   },
   {
     "id": "forest_berry_wine",
     "name": "森の木苺酒",
     "type": "果実",
     "alcohol": "低",
-    "smell": "強"
+    "smell": "芳醇",
+    "mouthfeel": "ツヤ"
   },
   {
     "id": "mountain_spring_water",
     "name": "山の湧き水",
     "type": "その他",
     "alcohol": "なし",
-    "smell": "弱"
+    "smell": "繊細",
+    "mouthfeel": "ピュア"
+  },
+  {
+    "id": "rice_sake",
+    "name": "米の清酒",
+    "type": "米",
+    "alcohol": "普通",
+    "smell": "穏やか",
+    "mouthfeel": "コク"
   }
 ]
