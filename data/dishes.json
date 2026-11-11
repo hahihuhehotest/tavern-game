@@ -5,7 +5,7 @@
     "main": "肉",
     "richness": "こってり",
     "cooking": "汁物",
-    "style": "標準"
+    "style": "素朴"
   },
   {
     "id": "grilled_fish",
@@ -13,7 +13,7 @@
     "main": "魚",
     "richness": "あっさり",
     "cooking": "焼き物",
-    "style": "繊細"
+    "style": "精緻"
   },
   {
     "id": "grain_stew",
@@ -21,6 +21,14 @@
     "main": "穀物",
     "richness": "普通",
     "cooking": "煮込み",
-    "style": "大胆"
+    "style": "豪快"
+  },
+  {
+    "id": "veggie_salad",
+    "name": "野菜の前衛サラダ",
+    "main": "野菜",
+    "richness": "濃いめ",
+    "cooking": "生",
+    "style": "前衛的"
   }
 ]
