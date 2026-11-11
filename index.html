@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.23</title>
+  <title>酒場経営ゲーム 試作品0.24</title>
   <style>
     body {
       font-family: sans-serif;
@@ -162,7 +162,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.23</p>
+  <p>試作品 0.24</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -555,9 +555,12 @@
       });
     }
 
+    // 能力の項目
+    // key は冒険者データ（adventurers.json）の名前、label は画面に出す名前
+    // （「理解力」の key は、データを変えなくて済むよう、以前のまま magic にしてある）
     const abilityFields = [
       { key: "stamina", label: "体力" },
-      { key: "magic", label: "魔力" },
+      { key: "magic", label: "理解力" },
       { key: "speed", label: "速さ" },
       { key: "experience", label: "経験" }
     ];
