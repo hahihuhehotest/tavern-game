@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.24</title>
+  <title>酒場経営ゲーム 試作品0.25</title>
   <style>
     body {
       font-family: sans-serif;
@@ -162,7 +162,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.24</p>
+  <p>試作品 0.25</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -319,7 +319,7 @@
     const HINT_COUNT = 1;
 
     // 好みに関するセリフ（各区分に複数用意して、ランダムに選ぶ）
-    // {s}：話題にする項目（食材は食材の名前、それ以外は「この味付け」のような言い方）
+    // {s}：話題にする項目（食材は食材の名前、それ以外は「この濃さ」のような言い方）
     // {eat}：料理なら「食べる」、酒なら「飲む」
     // ate：その料理（酒）を注文した場合 ／ skip：注文しなかった場合
     const HINT_TEXTS = {
@@ -366,19 +366,21 @@
     // {s} に入れる言葉。食材（main）は、出した食材の名前をそのまま言う
     const HINT_SUBJECTS = {
       dish: {
-        richness: "この味の重さ",
+        richness: "この濃さ",
         cooking: "この調理法",
-        style: "この味付け"
+        style: "この料理のスタンス"
       },
       drink: {
-        type: "この系統の酒",
+        type: "この種類の酒",
         alcohol: "この度数",
-        smell: "この酒の香り"
+        smell: "この酒の香り",
+        mouthfeel: "この口当たり"
       }
     };
 
-    // 酒の度数と香りが「嫌い」「大嫌い」のときだけ使うセリフ
+    // 酒の度数が「嫌い」「大嫌い」のときだけ使うセリフ
     // 好みの値より強すぎる（over）か、物足りない（under）かで言い方が変わる
+    // （香りと口当たりは強弱の順番がないので、他の項目と同じ言い方をする）
     const DRINK_DIRECTION_TEXTS = {
       alcohol: {
         over: {
@@ -401,35 +403,12 @@
             hate: ["こんなに薄い酒では話にならない。今回はやめておく。"]
           }
         }
-      },
-      smell: {
-        over: {
-          ate: {
-            dislike: ["{eat}けど、この酒の香りは強すぎるな。"],
-            hate: ["{eat}けど、この香りは受け付けないな。"]
-          },
-          skip: {
-            dislike: ["この酒の香りは強すぎる。今回はやめておく。"],
-            hate: ["この香りは受け付けない。今回はやめておく。"]
-          }
-        },
-        under: {
-          ate: {
-            dislike: ["{eat}けど、この酒は香りが物足りないな。"],
-            hate: ["{eat}けど、香りがなさすぎて味気ないな。"]
-          },
-          skip: {
-            dislike: ["この酒は香りが弱くて物足りない。今回はやめておく。"],
-            hate: ["香りのない酒は味気ない。今回はやめておく。"]
-          }
-        }
       }
     };
 
-    // 酒の度数と香りの強さの順番（弱い→強い）。「強すぎる／物足りない」の判定に使う
+    // 酒の度数の順番（弱い→強い）。「強すぎる／物足りない」の判定に使う
     const DRINK_ORDER = {
-      alcohol: ["なし", "低", "普通", "高"],
-      smell: ["弱", "普通", "強"]
+      alcohol: ["なし", "低", "普通", "高"]
     };
 
     // 調査情報の保存先
@@ -523,7 +502,8 @@
 
         // 料理・酒の好みの調査状況
         // 項目ごと・値ごとに、判明した評価点を保存する（未判明は null）
-        // 例：foodPref.main = { "肉": 5, "魚": null, "穀物": null }
+        // 例：foodPref.main = { "肉": 5, "魚": null, "穀物": null, "野菜": null }
+        // 保存してある評価点が、今の冒険者データの評価点と違う場合は、未判明に戻す
         PREF_CATEGORY_NAMES.forEach(function(category) {
           const info = PREF_CATEGORIES[category];
           const savedStore = knowledge[a.id][info.storeKey];
@@ -544,7 +524,12 @@
             const entry = {};
             info.values[key].forEach(function(value) {
               const rating = savedEntry[value];
-              entry[value] = VALID_RATINGS.includes(rating) ? rating : null;
+              const actual = a.preferences[category][key][value];
+
+              entry[value] =
+                VALID_RATINGS.includes(rating) && rating === actual
+                  ? rating
+                  : null;
             });
 
             store[key] = entry;
@@ -591,31 +576,35 @@
     const validJudgment = ["intuition", "normal", "deliberation"];
 
     // 料理の値の一覧
+    // main：食材、richness：濃さ、cooking：調理法、style：スタンス
     const validDishValues = {
-      main: ["肉", "魚", "穀物"],
-      richness: ["こってり", "普通", "あっさり"],
+      main: ["肉", "魚", "穀物", "野菜"],
+      richness: ["こってり", "濃いめ", "普通", "あっさり"],
       cooking: ["焼き物", "汁物", "煮込み", "生"],
-      style: ["繊細", "標準", "大胆"]
+      style: ["豪快", "精緻", "素朴", "前衛的"]
     };
 
     const dishFieldLabels = {
       main: "食材",
-      richness: "味の重さ",
+      richness: "濃さ",
       cooking: "調理法",
-      style: "味付け"
+      style: "スタンス"
     };
 
     // 飲み物の値の一覧
+    // type：種類、alcohol：アルコール度数、smell：香り、mouthfeel：口当たり
     const validDrinkValues = {
-      type: ["穀物", "果実", "その他"],
+      type: ["麦", "米", "果実", "その他"],
       alcohol: ["高", "普通", "低", "なし"],
-      smell: ["強", "普通", "弱"]
+      smell: ["芳醇", "穏やか", "軽快", "繊細"],
+      mouthfeel: ["キレ", "コク", "ツヤ", "ピュア"]
     };
 
     const drinkFieldLabels = {
       type: "種類",
       alcohol: "アルコール度数",
-      smell: "香り"
+      smell: "香り",
+      mouthfeel: "口当たり"
     };
 
     // 好みの対象（料理と酒）
@@ -628,9 +617,9 @@
         labels: dishFieldLabels,
         tableLabels: {
           main: "食材",
-          richness: "味の重さ",
+          richness: "濃さ",
           cooking: "調理法",
-          style: "味付け"
+          style: "スタンス"
         },
         heading: "料理の好み",
         prefix: ""
@@ -642,7 +631,8 @@
         tableLabels: {
           type: "種類",
           alcohol: "度数",
-          smell: "香り"
+          smell: "香り",
+          mouthfeel: "口当たり"
         },
         heading: "酒の好み",
         prefix: "酒の"
@@ -911,9 +901,9 @@
     function dishToText(dish) {
       return dish.name + "\n" +
         "食材：" + dish.main + "\n" +
-        "味の重さ：" + dish.richness + "\n" +
+        "濃さ：" + dish.richness + "\n" +
         "調理法：" + dish.cooking + "\n" +
-        "味付け：" + dish.style;
+        "スタンス：" + dish.style;
     }
 
     // 飲み物データを読み込む
@@ -929,10 +919,10 @@
       data.forEach(function(d) {
         if (
           !d.id || !d.name || !d.type ||
-          !d.alcohol || !d.smell
+          !d.alcohol || !d.smell || !d.mouthfeel
         ) {
           throw new Error(
-            "飲み物に id、name、type、alcohol、smell が必要です。"
+            "飲み物に id、name、type、alcohol、smell、mouthfeel が必要です。"
           );
         }
 
@@ -1009,7 +999,8 @@
       return drink.name + "\n" +
         "種類：" + drink.type + "系\n" +
         "アルコール度数：" + drink.alcohol + "\n" +
-        "香り：" + drink.smell;
+        "香り：" + drink.smell + "\n" +
+        "口当たり：" + drink.mouthfeel;
     }
 
     // 冒険者が、ある項目のある値につけている評価点を返す
@@ -1123,7 +1114,7 @@
       });
     }
 
-    // 酒の度数・香りについて、出した酒が「強すぎる(over)」か「物足りない(under)」かを返す
+    // 酒の度数について、出した酒が「強すぎる(over)」か「物足りない(under)」かを返す
     // 冒険者が最も高く評価している値を基準にする（基準と同じ値なら null）
     function getDrinkDirection(adventurer, key, served) {
       const order = DRINK_ORDER[key];
@@ -1156,10 +1147,10 @@
 
       let templates = null;
 
-      // 酒の度数・香りが嫌い／大嫌いのときは、強すぎる／物足りないを言い分ける
+      // 酒の度数が嫌い／大嫌いのときは、強すぎる／物足りないを言い分ける
       if (
         category === "drink" &&
-        (key === "alcohol" || key === "smell") &&
+        key === "alcohol" &&
         (tier === "dislike" || tier === "hate")
       ) {
         const direction = getDrinkDirection(adventurer, key, served);
@@ -1230,7 +1221,7 @@
     }
 
     // 好みの表を作る（1行が1項目、セルに「値の名前」と「評価点」を出す）
-    // 例：食材 ｜ 肉 5 ｜ 魚 4 ｜ 穀物 ？
+    // 例：食材 ｜ 肉 5 ｜ 魚 4 ｜ 穀物 ？ ｜ 野菜 ？
     function createPrefTable(adventurer, category) {
       const info = PREF_CATEGORIES[category];
       const keys = Object.keys(info.values);
