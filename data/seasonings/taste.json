@@ -1,0 +1,18 @@
+[
+  {
+    "id": "taste_001",
+    "name": "濃厚な香辛料",
+    "rarity": "2",
+    "value": "rich",
+    "food_text": "濃厚な",
+    "description": "料理に強い風味を加える"
+  },
+  {
+    "id": "taste_002",
+    "name": "淡白な調味料",
+    "rarity": "1",
+    "value": "light",
+    "food_text": "あっさりした",
+    "description": "料理の味を軽く仕上げる"
+  }
+]
