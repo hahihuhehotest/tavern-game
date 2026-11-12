@@ -1,0 +1,31 @@
+
+[
+  {
+    "id": "vegetable_001",
+    "name": "山菜",
+    "rarity": "common",
+    "food_text": "山菜",
+    "description": "森林や山地に自生する植物"
+  },
+  {
+    "id": "vegetable_002",
+    "name": "根菜",
+    "rarity": "common",
+    "food_text": "根菜",
+    "description": "土中で育つ食用植物"
+  },
+  {
+    "id": "vegetable_003",
+    "name": "香草",
+    "rarity": "uncommon",
+    "food_text": "香草",
+    "description": "独特の香りを持つ食用植物"
+  },
+  {
+    "id": "vegetable_004",
+    "name": "月光草",
+    "rarity": "rare",
+    "food_text": "月光草",
+    "description": "夜間に淡く光る珍しい植物"
+  }
+]
