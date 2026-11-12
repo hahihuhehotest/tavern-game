@@ -1,0 +1,31 @@
+
+[
+  {
+    "id": "grain_001",
+    "name": "小麦",
+    "rarity": "common",
+    "food_text": "小麦",
+    "description": "一般的に栽培されている穀物"
+  },
+  {
+    "id": "grain_002",
+    "name": "大麦",
+    "rarity": "common",
+    "food_text": "大麦",
+    "description": "食用や酒造りに使われる穀物"
+  },
+  {
+    "id": "grain_003",
+    "name": "香り米",
+    "rarity": "uncommon",
+    "food_text": "香り米",
+    "description": "独特の香りを持つ希少な穀物"
+  },
+  {
+    "id": "grain_004",
+    "name": "古代穀物",
+    "rarity": "rare",
+    "food_text": "古代穀物",
+    "description": "古い遺跡周辺で見つかる珍しい穀物"
+  }
+]
