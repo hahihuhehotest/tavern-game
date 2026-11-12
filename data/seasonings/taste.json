@@ -1,18 +1,27 @@
+
 [
   {
     "id": "taste_001",
     "name": "濃厚な香辛料",
-    "rarity": "2",
+    "rarity": "uncommon",
     "value": "rich",
     "food_text": "濃厚な",
-    "description": "料理に強い風味を加える"
+    "description": "料理に強い風味とコクを加える"
   },
   {
     "id": "taste_002",
-    "name": "淡白な調味料",
-    "rarity": "1",
+    "name": "あっさり調味料",
+    "rarity": "common",
     "value": "light",
     "food_text": "あっさりした",
-    "description": "料理の味を軽く仕上げる"
+    "description": "料理を軽い味わいに仕上げる"
+  },
+  {
+    "id": "taste_003",
+    "name": "万能調味料",
+    "rarity": "common",
+    "value": "normal",
+    "food_text": "ほどよい味付けの",
+    "description": "素材の味を引き立てる"
   }
 ]
