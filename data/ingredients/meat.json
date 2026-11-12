@@ -1,0 +1,16 @@
+[
+  {
+    "id": "meat_001",
+    "name": "赤身肉",
+    "rarity": "1",
+    "food_text": "赤身肉",
+    "description": "一般的な獣から採れる肉"
+  },
+  {
+    "id": "meat_002",
+    "name": "竜肉",
+    "rarity": "3",
+    "food_text": "竜肉",
+    "description": "竜から採れる希少な肉"
+  }
+]
