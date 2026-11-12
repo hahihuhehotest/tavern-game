@@ -1,27 +1,34 @@
-
 [
   {
     "id": "style_001",
-    "name": "繊細な調味料",
-    "rarity": "uncommon",
-    "value": "delicate",
-    "food_text": "繊細な",
-    "description": "素材の持ち味を活かして上品に仕上げる"
-  },
-  {
-    "id": "style_002",
-    "name": "標準調味料",
-    "rarity": "common",
-    "value": "standard",
-    "food_text": "定番の",
-    "description": "一般的な仕上がりにする"
-  },
-  {
-    "id": "style_003",
     "name": "豪快な調味料",
     "rarity": "uncommon",
     "value": "bold",
     "food_text": "豪快な",
-    "description": "素材を大胆に活かして仕上げる"
+    "description": "素材を大胆に活かして力強く仕上げる"
+  },
+  {
+    "id": "style_002",
+    "name": "精緻な調味料",
+    "rarity": "uncommon",
+    "value": "refined",
+    "food_text": "精緻な",
+    "description": "細部まで丁寧に仕上げ、上品な料理にする"
+  },
+  {
+    "id": "style_003",
+    "name": "素朴な調味料",
+    "rarity": "common",
+    "value": "rustic",
+    "food_text": "素朴な",
+    "description": "素材本来の味わいを活かして飾らず仕上げる"
+  },
+  {
+    "id": "style_004",
+    "name": "前衛的な調味料",
+    "rarity": "rare",
+    "value": "experimental",
+    "food_text": "前衛的な",
+    "description": "意外性のある組み合わせや独創的な仕上がりにする"
   }
 ]
