@@ -1,0 +1,27 @@
+
+[
+  {
+    "id": "style_001",
+    "name": "繊細な調味料",
+    "rarity": "uncommon",
+    "value": "delicate",
+    "food_text": "繊細な",
+    "description": "素材の持ち味を活かして上品に仕上げる"
+  },
+  {
+    "id": "style_002",
+    "name": "標準調味料",
+    "rarity": "common",
+    "value": "standard",
+    "food_text": "定番の",
+    "description": "一般的な仕上がりにする"
+  },
+  {
+    "id": "style_003",
+    "name": "豪快な調味料",
+    "rarity": "uncommon",
+    "value": "bold",
+    "food_text": "豪快な",
+    "description": "素材を大胆に活かして仕上げる"
+  }
+]
