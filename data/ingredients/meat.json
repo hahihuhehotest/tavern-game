@@ -1,16 +1,16 @@
 [
   {
     "id": "meat_001",
-    "name": "赤身肉",
-    "rarity": "1",
-    "food_text": "赤身肉",
-    "description": "一般的な獣から採れる肉"
+    "name": "野ウサギ",
+    "rarity": 1,
+    "food_text": "野ウサギ",
+    "description": "森や草原でよく獲れる小柄な獲物。癖が少なく、食べやすい肉"
   },
   {
     "id": "meat_002",
-    "name": "竜肉",
-    "rarity": "3",
-    "food_text": "竜肉",
-    "description": "竜から採れる希少な肉"
+    "name": "竜の尾",
+    "rarity": 4,
+    "food_text": "竜の尾",
+    "description": "竜の尾から取れる貴重な肉。濃い旨みと弾力がある"
   }
 ]
