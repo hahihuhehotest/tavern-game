@@ -1,31 +1,16 @@
-
 [
   {
     "id": "grain_001",
-    "name": "小麦",
-    "rarity": "1",
-    "food_text": "小麦",
-    "description": "一般的に栽培されている穀物"
+    "name": "黒麦",
+    "rarity": 1,
+    "food_text": "黒麦",
+    "description": "寒い土地でも育つ丈夫な麦。香ばしく素朴な味わい"
   },
   {
     "id": "grain_002",
-    "name": "大麦",
-    "rarity": "1",
-    "food_text": "大麦",
-    "description": "食用や酒造りに使われる穀物"
-  },
-  {
-    "id": "grain_003",
-    "name": "香り米",
-    "rarity": "2",
-    "food_text": "香り米",
-    "description": "独特の香りを持つ希少な穀物"
-  },
-  {
-    "id": "grain_004",
-    "name": "古代穀物",
-    "rarity": "3",
-    "food_text": "古代穀物",
-    "description": "古い遺跡周辺で見つかる珍しい穀物"
+    "name": "白銀米",
+    "rarity": 3,
+    "food_text": "白銀米",
+    "description": "山あいの棚田でわずかにとれる米。粒が大きく、ほのかに甘い"
   }
 ]
