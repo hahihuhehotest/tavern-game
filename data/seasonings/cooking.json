@@ -2,7 +2,7 @@
   {
     "id": "cooking_001",
     "name": "焼き調味料",
-    "rarity": "common",
+    "rarity": "1",
     "value": "grilled",
     "food_text": "焼き",
     "description": "食材を香ばしく焼き上げる"
@@ -10,7 +10,7 @@
   {
     "id": "cooking_002",
     "name": "汁物調味料",
-    "rarity": "common",
+    "rarity": "1",
     "value": "soup",
     "food_text": "汁仕立ての",
     "description": "食材を汁物として仕上げる"
@@ -18,7 +18,7 @@
   {
     "id": "cooking_003",
     "name": "煮込み調味料",
-    "rarity": "common",
+    "rarity": "1",
     "value": "stew",
     "food_text": "煮込み",
     "description": "食材をじっくり煮込む"
@@ -26,7 +26,7 @@
   {
     "id": "cooking_004",
     "name": "生食調味料",
-    "rarity": "uncommon",
+    "rarity": "2",
     "value": "raw",
     "food_text": "生仕立ての",
     "description": "食材を生のまま味わう"
