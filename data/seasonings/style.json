@@ -1,34 +1,34 @@
 [
   {
     "id": "style_001",
-    "name": "豪快な調味料",
-    "rarity": "uncommon",
+    "name": "豪快スパイス",
+    "rarity": 1,
     "value": "bold",
-    "food_text": "豪快な",
-    "description": "素材を大胆に活かして力強く仕上げる"
+    "food_text": "豪快スパイスの",
+    "description": "大ぶりに、大胆に味を付ける荒々しい香辛料。豪快な仕上がりになる"
   },
   {
     "id": "style_002",
-    "name": "精緻な調味料",
-    "rarity": "uncommon",
+    "name": "花塩",
+    "rarity": 3,
     "value": "refined",
-    "food_text": "精緻な",
-    "description": "細部まで丁寧に仕上げ、上品な料理にする"
+    "food_text": "花塩の",
+    "description": "ひと振りで整う上品な塩。精緻な仕上がりになる"
   },
   {
     "id": "style_003",
-    "name": "素朴な調味料",
-    "rarity": "common",
-    "value": "rustic",
-    "food_text": "素朴な",
-    "description": "素材本来の味わいを活かして飾らず仕上げる"
+    "name": "田舎味噌",
+    "rarity": 1,
+    "value": "simple",
+    "food_text": "田舎味噌の",
+    "description": "どこか懐かしい素朴な味噌。飾らない仕上がりになる"
   },
   {
     "id": "style_004",
-    "name": "前衛的な調味料",
-    "rarity": "rare",
-    "value": "experimental",
-    "food_text": "前衛的な",
-    "description": "意外性のある組み合わせや独創的な仕上がりにする"
+    "name": "謎の発酵エキス",
+    "rarity": 4,
+    "value": "avant_garde",
+    "food_text": "謎の発酵エキスの",
+    "description": "出どころ不明の発酵調味料。前衛的な仕上がりになる"
   }
 ]
