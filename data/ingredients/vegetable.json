@@ -1,31 +1,16 @@
-
 [
   {
     "id": "vegetable_001",
-    "name": "山菜",
-    "rarity": "1",
-    "food_text": "山菜",
-    "description": "森林や山地に自生する植物"
+    "name": "ごろ芋",
+    "rarity": 1,
+    "food_text": "ごろ芋",
+    "description": "どこの畑でも育つ大ぶりの芋。ほくほくして腹持ちが良い"
   },
   {
     "id": "vegetable_002",
-    "name": "根菜",
-    "rarity": "1",
-    "food_text": "根菜",
-    "description": "土中で育つ食用植物"
-  },
-  {
-    "id": "vegetable_003",
-    "name": "香草",
-    "rarity": "2",
-    "food_text": "香草",
-    "description": "独特の香りを持つ食用植物"
-  },
-  {
-    "id": "vegetable_004",
     "name": "月光草",
-    "rarity": "3",
+    "rarity": 4,
     "food_text": "月光草",
-    "description": "夜間に淡く光る珍しい植物"
+    "description": "月夜にだけ葉を開く珍しい野草。ほのかな苦みと香りがある"
   }
 ]
