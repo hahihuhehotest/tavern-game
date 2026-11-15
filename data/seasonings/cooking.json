@@ -1,34 +1,34 @@
 [
   {
     "id": "cooking_001",
-    "name": "焼き調味料",
-    "rarity": "1",
-    "value": "grilled",
-    "food_text": "焼き",
-    "description": "食材を香ばしく焼き上げる"
+    "name": "香ばし塩",
+    "rarity": 1,
+    "value": "grill",
+    "food_text": "香ばし塩の",
+    "description": "直火で焼くと香りが立つ塩。焼き物に仕立てる"
   },
   {
     "id": "cooking_002",
-    "name": "汁物調味料",
-    "rarity": "1",
+    "name": "骨出汁",
+    "rarity": 2,
     "value": "soup",
-    "food_text": "汁仕立ての",
-    "description": "食材を汁物として仕上げる"
+    "food_text": "骨出汁の",
+    "description": "じっくり煮出した旨みの強い出汁。汁物に仕立てる"
   },
   {
     "id": "cooking_003",
-    "name": "煮込み調味料",
-    "rarity": "1",
+    "name": "赤ワインソース",
+    "rarity": 3,
     "value": "stew",
-    "food_text": "煮込み",
-    "description": "食材をじっくり煮込む"
+    "food_text": "赤ワイン仕込みの",
+    "description": "長く煮込むほど深みが出るソース。煮込みに仕立てる"
   },
   {
     "id": "cooking_004",
-    "name": "生食調味料",
-    "rarity": "2",
+    "name": "冷涼ハーブ",
+    "rarity": 2,
     "value": "raw",
-    "food_text": "生仕立ての",
-    "description": "食材を生のまま味わう"
+    "food_text": "冷涼ハーブの",
+    "description": "火を通さず素材の鮮度を活かすためのハーブ。生で仕立てる"
   }
 ]
