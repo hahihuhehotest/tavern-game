@@ -1,34 +1,34 @@
 [
   {
     "id": "taste_001",
-    "name": "こってり調味料",
-    "rarity": "1",
+    "name": "濃厚醤油",
+    "rarity": 1,
     "value": "heavy",
-    "food_text": "こってりした",
+    "food_text": "濃厚醤油の",
     "description": "油脂やコクを活かした重厚な味わいにする"
   },
   {
     "id": "taste_002",
-    "name": "濃いめ調味料",
-    "rarity": "1",
-    "value": "rich",
-    "food_text": "濃いめの",
-    "description": "味付けを強め、はっきりした味わいにする"
+    "name": "甘辛だれ",
+    "rarity": 2,
+    "value": "strong",
+    "food_text": "甘辛だれの",
+    "description": "甘みと塩気をしっかり効かせた、濃いめの味わいにする"
   },
   {
     "id": "taste_003",
-    "name": "万能調味料",
-    "rarity": "1",
+    "name": "岩塩",
+    "rarity": 1,
     "value": "normal",
-    "food_text": "ほどよい味付けの",
-    "description": "素材の味を活かした標準的な味わいにする"
+    "food_text": "岩塩の",
+    "description": "素材の味を邪魔しない、ほどよい味わいにする"
   },
   {
     "id": "taste_004",
-    "name": "あっさり調味料",
-    "rarity": "1",
+    "name": "柑橘ぽん酢",
+    "rarity": 3,
     "value": "light",
-    "food_text": "あっさりした",
-    "description": "軽くすっきりした味わいにする"
+    "food_text": "柑橘ぽん酢の",
+    "description": "酸味と香りで、さっぱりと軽い味わいにする"
   }
 ]
