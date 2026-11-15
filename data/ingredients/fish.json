@@ -2,14 +2,14 @@
   {
     "id": "fish_001",
     "name": "川魚",
-    "rarity": "1",
+    "rarity": 1,
     "food_text": "川魚",
-    "description": "普通の川で取れる魚"
+    "description": "清流でよく獲れる身近な魚。淡白で食べやすい"
   },
   {
-    "id": " fish_002",
+    "id": "fish_002",
     "name": "大マグロ",
-    "rarity": "3",
+    "rarity": 3,
     "food_text": "大マグロ",
     "description": "なかなか獲られない大型のマグロ"
   }
