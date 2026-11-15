@@ -2,7 +2,7 @@
   {
     "id": "taste_001",
     "name": "こってり調味料",
-    "rarity": "uncommon",
+    "rarity": "1",
     "value": "heavy",
     "food_text": "こってりした",
     "description": "油脂やコクを活かした重厚な味わいにする"
@@ -10,7 +10,7 @@
   {
     "id": "taste_002",
     "name": "濃いめ調味料",
-    "rarity": "common",
+    "rarity": "1",
     "value": "rich",
     "food_text": "濃いめの",
     "description": "味付けを強め、はっきりした味わいにする"
@@ -18,7 +18,7 @@
   {
     "id": "taste_003",
     "name": "万能調味料",
-    "rarity": "common",
+    "rarity": "1",
     "value": "normal",
     "food_text": "ほどよい味付けの",
     "description": "素材の味を活かした標準的な味わいにする"
@@ -26,7 +26,7 @@
   {
     "id": "taste_004",
     "name": "あっさり調味料",
-    "rarity": "common",
+    "rarity": "1",
     "value": "light",
     "food_text": "あっさりした",
     "description": "軽くすっきりした味わいにする"
