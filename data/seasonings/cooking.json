@@ -12,7 +12,7 @@
     "name": "骨出汁",
     "rarity": 2,
     "value": "soup",
-    "food_text": "骨出汁の",
+    "food_text": "骨だしの",
     "description": "じっくり煮出した旨みの強い出汁。汁物に仕立てる"
   },
   {
@@ -20,7 +20,7 @@
     "name": "赤ワインソース",
     "rarity": 3,
     "value": "stew",
-    "food_text": "赤ワイン仕込みの",
+    "food_text": "赤ワインの",
     "description": "長く煮込むほど深みが出るソース。煮込みに仕立てる"
   },
   {
