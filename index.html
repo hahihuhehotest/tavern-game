@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.25</title>
+  <title>酒場経営ゲーム 試作品0.26</title>
   <style>
     body {
       font-family: sans-serif;
@@ -60,6 +60,13 @@
     .adventurer h3 { margin-top: 0; }
     .dialogue { margin-top: 10px; }
     .info-box p { margin: 5px 0; }
+    .cook-box {
+      border: 1px dashed #b9a58c;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 12px 0;
+    }
+    .cook-box h3 { margin-top: 0; }
 
     /* 好みの表 */
     .pref-table {
@@ -162,7 +169,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.25</p>
+  <p>試作品 0.26</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -177,7 +184,7 @@
   <section id="loadError" hidden>
     <h2>データの読み込みに失敗しました</h2>
     <p id="loadErrorMessage" class="error"></p>
-    <p>data/adventurers.json、data/dishes.json、data/drinks.json のファイル名と内容を確認してください。</p>
+    <p>data/ の中のファイル名と内容を確認してください（adventurers.json、drinks.json、ingredients/ の4ファイル、seasonings/ の3ファイル）。</p>
   </section>
 
   <section id="morningSection" hidden>
@@ -190,6 +197,22 @@
   <section id="preparationSection" hidden>
     <h2>営業準備</h2>
     <p>今日のお客に出す料理と飲み物を決めましょう。</p>
+
+    <div class="cook-box">
+      <h3>料理を作る</h3>
+      <p>食材で食材の種類が決まり、調味料で濃さ・調理法・スタンスのどれか1つが決まります。残りはランダムです。</p>
+
+      <label for="ingredientSelect">食材</label>
+      <select id="ingredientSelect"></select>
+      <div id="ingredientDetail" class="info-box"></div>
+
+      <label for="seasoningSelect">調味料</label>
+      <select id="seasoningSelect"></select>
+      <div id="seasoningDetail" class="info-box"></div>
+
+      <button id="cookButton" type="button">この組み合わせで料理を作る</button>
+      <div id="cookResult" class="menu-box" hidden></div>
+    </div>
 
     <h3>料理の選択</h3>
     <label for="dishSelect">手持ちの料理</label>
@@ -244,14 +267,18 @@
     let currentAdventurerIndex = 0;
     let adventurers = [];
 
-    // 料理データ（dishes.json の全料理）
+    // 料理データ
+    // data/dishes.json に書いた料理（あれば）と、ゲーム中に作った料理が入る
     let dishes = [];
 
     // 手持ちの料理ID。
-    // 空配列のままなら、テスト用として dishes.json の全料理を持っている扱いにする。
+    // dishes.json がある場合、空配列のままなら、そこに書いた全料理を持っている扱いにする。
     // 特定の料理だけ持たせたい場合は、例：["dragon_tail_soup"]
     const INITIAL_OWNED_DISH_IDS = [];
     let ownedDishIds = [];
+
+    // ゲーム中に作った料理の数（料理のIDをつけるために使う）
+    let generatedCounter = 0;
 
     // 飲み物データ（drinks.json の全飲み物）
     let drinks = [];
@@ -262,8 +289,72 @@
     const INITIAL_OWNED_DRINK_IDS = [];
     let ownedDrinkIds = [];
 
+    // 食材データ（data/ingredients/ の4ファイルをまとめたもの）
+    // 各食材に、どの種類のファイルから読んだか（main：肉・魚・穀物・野菜）が付く
+    let ingredients = [];
+
+    // 調味料データ（data/seasonings/ の3ファイルをまとめたもの）
+    // 各調味料に、確定させる項目（field）とその値（dishValue）が付く
+    let seasonings = [];
+
     // データ読み込み時の警告（読み込み後に記録へ出す）
     const dataWarnings = [];
+
+    // ===== 食材・調味料のファイルの設定 =====
+    // 食材：ファイル名と、そのファイルの食材が決める「食材の種類」
+    const INGREDIENT_FILES = [
+      { file: "meat", main: "肉" },
+      { file: "fish", main: "魚" },
+      { file: "grain", main: "穀物" },
+      { file: "vegetable", main: "野菜" }
+    ];
+
+    // 調味料：ファイル名と、確定させる料理の項目（field）、
+    // 調味料データの value と料理の値の対応表
+    const SEASONING_FILES = [
+      {
+        file: "taste",
+        field: "richness",
+        label: "濃さ",
+        values: {
+          heavy: "こってり",
+          strong: "濃いめ",
+          normal: "普通",
+          light: "あっさり"
+        }
+      },
+      {
+        file: "cooking",
+        field: "cooking",
+        label: "調理法",
+        values: {
+          grill: "焼き物",
+          soup: "汁物",
+          stew: "煮込み",
+          raw: "生"
+        }
+      },
+      {
+        file: "style",
+        field: "style",
+        label: "スタンス",
+        values: {
+          bold: "豪快",
+          refined: "精緻",
+          simple: "素朴",
+          avant_garde: "前衛的"
+        }
+      }
+    ];
+
+    // 料理名の最後につける、調理法の表記
+    // 例：大マグロの濃厚醤油焼き ／ 鶏肉の〇〇仕立て
+    const COOKING_NAME_SUFFIX = {
+      "焼き物": "焼き",
+      "汁物": "汁",
+      "煮込み": "煮込み",
+      "生": "仕立て"
+    };
 
     // ===== 朝の行動の設定 =====
     // 毎日選べる行動（不要なものは、その行を消す）
@@ -652,6 +743,7 @@
     }
 
     // JSONファイルを読み込む（10秒で打ち切り、失敗の理由を分かりやすく返す）
+    // ファイルが見つからないときは、エラーに httpStatus（404 など）が付く
     async function fetchJson(path, label) {
       const controller = new AbortController();
       const timer = setTimeout(function() {
@@ -662,10 +754,12 @@
         const response = await fetch(path, { signal: controller.signal });
 
         if (!response.ok) {
-          throw new Error(
+          const httpError = new Error(
             label + "データを取得できませんでした。HTTP " + response.status +
             "（" + path + " の場所と名前を確認してください）"
           );
+          httpError.httpStatus = response.status;
+          throw httpError;
         }
 
         return await response.json();
@@ -680,7 +774,7 @@
           throw new Error(
             label + "データのJSON形式が正しくありません。" +
             "カンマの抜けや余分なカンマ、ダブルクォートの閉じ忘れを確認してください。" +
-            "（" + error.message + "）"
+            "（" + path + "：" + error.message + "）"
           );
         }
 
@@ -807,12 +901,337 @@
       saveKnowledge();
     }
 
-    // 料理データを読み込む
-    async function loadDishes() {
-      const data = await fetchJson("./data/dishes.json", "料理");
+    // 食材・調味料の1件分を、読み込める形に整える
+    // id の前後の空白は取り除き、rarity が文字列でも数字に直す（どちらも警告を出す）
+    function normalizeMaterial(item, where) {
+      if (
+        !item ||
+        typeof item.id !== "string" ||
+        !item.name ||
+        !item.food_text
+      ) {
+        throw new Error(where + "に id、name、food_text が必要です。");
+      }
 
-      if (!Array.isArray(data) || data.length === 0) {
-        throw new Error("料理データが空か、配列形式ではありません。");
+      const id = item.id.trim();
+
+      if (id === "") {
+        throw new Error(where + "の「" + item.name + "」の id が空です。");
+      }
+
+      if (id !== item.id) {
+        dataWarnings.push(
+          where + "の id「" + item.id +
+          "」の前後に空白があったので、取り除いて読み込みました。"
+        );
+      }
+
+      const rarity = Number(item.rarity);
+
+      if (!Number.isFinite(rarity)) {
+        throw new Error(
+          where + "の「" + item.name + "」の rarity が数字ではありません。"
+        );
+      }
+
+      if (typeof item.rarity === "string") {
+        dataWarnings.push(
+          where + "の「" + item.name + "」の rarity が文字列でした。数字（" +
+          rarity + "）として読み込みました。"
+        );
+      }
+
+      return {
+        id: id,
+        name: item.name,
+        rarity: rarity,
+        food_text: item.food_text,
+        description: item.description || ""
+      };
+    }
+
+    // 食材データを読み込む（data/ingredients/ の4ファイル）
+    async function loadIngredients() {
+      const list = [];
+      const ids = new Set();
+
+      for (const def of INGREDIENT_FILES) {
+        const data = await fetchJson(
+          "./data/ingredients/" + def.file + ".json",
+          "食材（" + def.file + ".json）"
+        );
+
+        if (!Array.isArray(data)) {
+          throw new Error(
+            "食材データ（" + def.file + ".json）が配列形式ではありません。"
+          );
+        }
+
+        data.forEach(function(item) {
+          const material = normalizeMaterial(
+            item,
+            "食材（" + def.file + ".json）"
+          );
+
+          if (ids.has(material.id)) {
+            throw new Error("食材のIDが重複しています：" + material.id);
+          }
+          ids.add(material.id);
+
+          material.main = def.main;
+          list.push(material);
+        });
+      }
+
+      if (list.length === 0) {
+        throw new Error("食材が1つもありません。");
+      }
+
+      ingredients = list;
+    }
+
+    // 調味料データを読み込む（data/seasonings/ の3ファイル）
+    async function loadSeasonings() {
+      const list = [];
+      const ids = new Set();
+
+      for (const def of SEASONING_FILES) {
+        const data = await fetchJson(
+          "./data/seasonings/" + def.file + ".json",
+          "調味料（" + def.file + ".json）"
+        );
+
+        if (!Array.isArray(data)) {
+          throw new Error(
+            "調味料データ（" + def.file + ".json）が配列形式ではありません。"
+          );
+        }
+
+        data.forEach(function(item) {
+          const material = normalizeMaterial(
+            item,
+            "調味料（" + def.file + ".json）"
+          );
+
+          if (ids.has(material.id)) {
+            throw new Error("調味料のIDが重複しています：" + material.id);
+          }
+          ids.add(material.id);
+
+          const dishValue = def.values[item.value];
+
+          if (!dishValue) {
+            throw new Error(
+              "調味料「" + material.name + "」（" + def.file +
+              ".json）の value が不正です：" + item.value +
+              "（" + Object.keys(def.values).join("、") + "のいずれか）"
+            );
+          }
+
+          material.field = def.field;
+          material.fieldLabel = def.label;
+          material.dishValue = dishValue;
+          list.push(material);
+        });
+      }
+
+      if (list.length === 0) {
+        throw new Error("調味料が1つもありません。");
+      }
+
+      seasonings = list;
+    }
+
+    // 食材の選択欄を作る（食材の種類ごとにグループ分け）
+    function renderIngredientSelect() {
+      const select = document.getElementById("ingredientSelect");
+      select.replaceChildren();
+
+      INGREDIENT_FILES.forEach(function(def) {
+        const group = document.createElement("optgroup");
+        group.label = def.main;
+
+        ingredients.forEach(function(item) {
+          if (item.main !== def.main) return;
+
+          const option = document.createElement("option");
+          option.value = item.id;
+          option.textContent = item.name + "（レア度" + item.rarity + "）";
+          group.appendChild(option);
+        });
+
+        if (group.children.length > 0) {
+          select.appendChild(group);
+        }
+      });
+
+      if (select.options.length > 0) {
+        select.selectedIndex = 0;
+      }
+    }
+
+    // 調味料の選択欄を作る（確定させる項目ごとにグループ分け）
+    function renderSeasoningSelect() {
+      const select = document.getElementById("seasoningSelect");
+      select.replaceChildren();
+
+      SEASONING_FILES.forEach(function(def) {
+        const group = document.createElement("optgroup");
+        group.label = def.label;
+
+        seasonings.forEach(function(item) {
+          if (item.field !== def.field) return;
+
+          const option = document.createElement("option");
+          option.value = item.id;
+          option.textContent = item.name + "（レア度" + item.rarity + "）";
+          group.appendChild(option);
+        });
+
+        if (group.children.length > 0) {
+          select.appendChild(group);
+        }
+      });
+
+      if (select.options.length > 0) {
+        select.selectedIndex = 0;
+      }
+    }
+
+    function getSelectedIngredient() {
+      const id = document.getElementById("ingredientSelect").value;
+
+      return ingredients.find(function(item) {
+        return item.id === id;
+      });
+    }
+
+    function getSelectedSeasoning() {
+      const id = document.getElementById("seasoningSelect").value;
+
+      return seasonings.find(function(item) {
+        return item.id === id;
+      });
+    }
+
+    // 選んでいる食材・調味料の説明を表示する
+    function updateCookDetails() {
+      const ingredient = getSelectedIngredient();
+      const seasoning = getSelectedSeasoning();
+
+      document.getElementById("ingredientDetail").textContent = ingredient
+        ? ingredient.name + "\n" + ingredient.description +
+          "\n確定する項目：食材＝" + ingredient.main
+        : "食材を選んでください。";
+
+      document.getElementById("seasoningDetail").textContent = seasoning
+        ? seasoning.name + "\n" + seasoning.description +
+          "\n確定する項目：" + seasoning.fieldLabel + "＝" + seasoning.dishValue
+        : "調味料を選んでください。";
+    }
+
+    // 料理名を作る
+    // 「食材」の「調味料」「調理法」（例：大マグロの濃厚醤油焼き）
+    // food_text の最後の「の」は、つなぎの「の」と重ならないよう取り除く
+    function buildDishName(ingredient, seasoning, cooking) {
+      const ingredientText = ingredient.food_text.replace(/の$/, "");
+      const seasoningText = seasoning.food_text.replace(/の$/, "");
+
+      return ingredientText + "の" + seasoningText + COOKING_NAME_SUFFIX[cooking];
+    }
+
+    // 食材と調味料から、料理を1つ作る
+    // 食材で「食材」、調味料で濃さ・調理法・スタンスのどれか1つが確定し、残りはランダム
+    function generateDish(ingredient, seasoning) {
+      const dish = {
+        main: ingredient.main,
+        richness: null,
+        cooking: null,
+        style: null
+      };
+
+      dish[seasoning.field] = seasoning.dishValue;
+
+      const fixedFields = ["main", seasoning.field];
+
+      ["richness", "cooking", "style"].forEach(function(field) {
+        if (dish[field] === null) {
+          dish[field] = pickRandom(validDishValues[field]);
+        }
+      });
+
+      generatedCounter++;
+
+      dish.id = "generated_" + generatedCounter;
+      dish.name = buildDishName(ingredient, seasoning, dish.cooking);
+      dish.generated = true;
+
+      return {
+        dish: dish,
+        fixedFields: fixedFields
+      };
+    }
+
+    // 「この組み合わせで料理を作る」ボタンの処理
+    function cookDish() {
+      if (phase !== "preparation") return;
+
+      const ingredient = getSelectedIngredient();
+      const seasoning = getSelectedSeasoning();
+
+      if (!ingredient || !seasoning) {
+        showPrepMessage("食材と調味料を選んでください。");
+        return;
+      }
+
+      clearPrepMessage();
+
+      const result = generateDish(ingredient, seasoning);
+      const dish = result.dish;
+
+      dishes.push(dish);
+      ownedDishIds.push(dish.id);
+
+      // 手持ちの料理の選択欄に追加し、できた料理を選んだ状態にする
+      renderDishSelect();
+      document.getElementById("dishSelect").value = dish.id;
+      updateMenuPreview();
+
+      const lines = ["「" + dish.name + "」ができた。"];
+
+      Object.keys(dishFieldLabels).forEach(function(field) {
+        lines.push(
+          dishFieldLabels[field] + "：" + dish[field] +
+          (result.fixedFields.includes(field) ? "（確定）" : "（ランダム）")
+        );
+      });
+
+      const resultBox = document.getElementById("cookResult");
+      resultBox.textContent = lines.join("\n");
+      resultBox.hidden = false;
+
+      addLog(
+        day + "日目：" + ingredient.name + "と" + seasoning.name +
+        "で、料理「" + dish.name + "」を作った。"
+      );
+    }
+
+    // 料理データを読み込む（data/dishes.json は、なくても動く）
+    async function loadDishes() {
+      let data = [];
+
+      try {
+        data = await fetchJson("./data/dishes.json", "料理");
+      } catch (error) {
+        if (error.httpStatus === 404) {
+          data = [];
+        } else {
+          throw error;
+        }
+      }
+
+      if (!Array.isArray(data)) {
+        throw new Error("料理データが配列形式ではありません。");
       }
 
       const ids = new Set();
@@ -853,10 +1272,6 @@
         ownedDishIds = INITIAL_OWNED_DISH_IDS.filter(function(id) {
           return ids.has(id);
         });
-      }
-
-      if (ownedDishIds.length === 0) {
-        throw new Error("手持ちの料理が1つもありません。");
       }
 
       renderDishSelect();
@@ -1564,6 +1979,10 @@
       );
 
       clearPrepMessage();
+
+      // 朝が来るたびに、前の日の「作った料理」の表示は消す
+      document.getElementById("cookResult").hidden = true;
+
       updateMenuPreview();
       updateStatus();
     }
@@ -1588,7 +2007,7 @@
       const drink = getSelectedDrink();
 
       document.getElementById("dishDetail").textContent =
-        dish ? dishToText(dish) : "料理を選んでください。";
+        dish ? dishToText(dish) : "料理がありません。上の「料理を作る」で作ってください。";
 
       document.getElementById("drinkDetail").textContent =
         drink ? drinkToText(drink) : "飲み物を選んでください。";
@@ -1701,8 +2120,7 @@
 
         if (!menu.dish) {
           showPrepMessage(
-            "料理が選べません。手持ちの料理数：" + getOwnedDishes().length +
-            "、料理データ数：" + dishes.length
+            "料理がありません。上の「料理を作る」で、先に料理を作ってください。"
           );
           return;
         }
@@ -1932,6 +2350,20 @@
       openTavern
     );
 
+    // 料理を作るボタン
+    document.getElementById("cookButton").addEventListener(
+      "click",
+      cookDish
+    );
+
+    // 食材・調味料を選び直したときに、説明を更新する
+    ["ingredientSelect", "seasoningSelect"].forEach(function(id) {
+      document.getElementById(id).addEventListener(
+        "change",
+        updateCookDetails
+      );
+    });
+
     const menuInputs = [
       "dishSelect",
       "drinkSelect"
@@ -1947,12 +2379,23 @@
     async function initGame() {
       try {
         await loadAdventurers();
+        await loadIngredients();
+        await loadSeasonings();
         await loadDishes();
         await loadDrinks();
+
         renderAdventurers();
+        renderIngredientSelect();
+        renderSeasoningSelect();
+        updateCookDetails();
         updateMenuPreview();
         updateStatus();
-        addLog("冒険者・料理・飲み物のデータを読み込みました。");
+        addLog(
+          "データを読み込みました。（冒険者" + adventurers.length +
+          "人、食材" + ingredients.length +
+          "種、調味料" + seasonings.length +
+          "種、飲み物" + drinks.length + "種）"
+        );
 
         dataWarnings.forEach(function(warning) {
           addLog("【データ警告】" + warning);
