@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.26</title>
+  <title>酒場経営ゲーム 試作品0.27</title>
   <style>
     body {
       font-family: sans-serif;
@@ -66,7 +66,15 @@
       padding: 12px;
       margin: 12px 0;
     }
-    .cook-box h3 { margin-top: 0; }
+    .market-option {
+      margin: 14px 0;
+    }
+    .market-option p {
+      margin: 2px 6px 0;
+      font-size: 13px;
+      color: #79552b;
+      line-height: 1.6;
+    }
 
     /* 好みの表 */
     .pref-table {
@@ -169,7 +177,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.26</p>
+  <p>試作品 0.27</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -194,14 +202,11 @@
     <p id="morningResult">今日の行動を選んでください。</p>
   </section>
 
-  <section id="preparationSection" hidden>
-    <h2>営業準備</h2>
-    <p>今日のお客に出す料理と飲み物を決めましょう。</p>
+  <section id="cookingSection" hidden>
+    <h2>酒場で仕込み</h2>
+    <p>食材で食材の種類が決まり、調味料で濃さ・調理法・スタンスのどれか1つが決まります。残りはランダムです。</p>
 
     <div class="cook-box">
-      <h3>料理を作る</h3>
-      <p>食材で食材の種類が決まり、調味料で濃さ・調理法・スタンスのどれか1つが決まります。残りはランダムです。</p>
-
       <label for="ingredientSelect">食材</label>
       <select id="ingredientSelect"></select>
       <div id="ingredientDetail" class="info-box"></div>
@@ -211,8 +216,25 @@
       <div id="seasoningDetail" class="info-box"></div>
 
       <button id="cookButton" type="button">この組み合わせで料理を作る</button>
+      <p id="cookMessage" class="error" hidden></p>
       <div id="cookResult" class="menu-box" hidden></div>
     </div>
+
+    <h3>手持ちの料理</h3>
+    <div id="ownedDishList" class="info-box"></div>
+
+    <button id="finishCookingButton" type="button">仕込みを終える</button>
+  </section>
+
+  <section id="marketSection" hidden>
+    <h2>市場</h2>
+    <p>市場で何をしますか？</p>
+    <div id="marketOptions"></div>
+  </section>
+
+  <section id="preparationSection" hidden>
+    <h2>営業準備</h2>
+    <p>今日のお客に出す料理と飲み物を決めましょう。</p>
 
     <h3>料理の選択</h3>
     <label for="dishSelect">手持ちの料理</label>
@@ -227,6 +249,7 @@
     <h3>本日のメニュー</h3>
     <div id="menuPreview" class="menu-box"></div>
     <button id="openTavernButton" type="button">このメニューで酒場を営業する</button>
+    <button id="skipDayButton" type="button" hidden>営業せずに1日を終える</button>
     <p id="prepMessage" class="error" hidden></p>
   </section>
 
@@ -259,6 +282,10 @@
     let day = 1;
     let money = 1000;
     let reputation = 0;
+
+    // 現在の段階
+    // morning：朝の行動 ／ cooking：酒場で仕込み ／ market：市場
+    // preparation：営業準備 ／ tavern：酒場の営業
     let phase = "morning";
     let todaysMenu = {};
 
@@ -357,18 +384,38 @@
     };
 
     // ===== 朝の行動の設定 =====
+    // type：cook（酒場で仕込み）、market（市場）、normal（それ以外）
     // 毎日選べる行動（不要なものは、その行を消す）
     const MORNING_ACTIONS = [
-      { label: "酒場で仕込みをする" },
-      { label: "市場に行く" },
-      { label: "商会に行く" },
-      { label: "広場に行く" },
-      { label: "開拓本部に行く" }
+      { label: "酒場で仕込みをする", type: "cook" },
+      { label: "市場に行く", type: "market" },
+      { label: "商会に行く", type: "normal" },
+      { label: "広場に行く", type: "normal" },
+      { label: "開拓本部に行く", type: "normal" }
     ];
 
     // 日数が2の倍数の日だけ追加される行動
     const EVEN_DAY_MORNING_ACTIONS = [
-      { label: "裏路地に行く" }
+      { label: "裏路地に行く", type: "normal" }
+    ];
+
+    // 市場で選べる行動（今は選択肢を出すだけで、効果は未実装）
+    const MARKET_OPTIONS = [
+      {
+        id: "shopping",
+        label: "買い物をする",
+        description: "レア度の低い食材か調味料を1つ入手する"
+      },
+      {
+        id: "gossip",
+        label: "世間話をする",
+        description: "ランダムな冒険者1人の情報が1つ得られる"
+      },
+      {
+        id: "advertise",
+        label: "店の宣伝をする",
+        description: "宣伝の効果を発揮する（例：肉に力を入れていると宣伝すれば、一定の間、肉好きな冒険者が来店しやすくなる）"
+      }
     ];
 
     // ===== 好みの評価の設定 =====
@@ -1172,19 +1219,50 @@
       };
     }
 
+    // 仕込みの画面に、赤字でメッセージを出す
+    function showCookMessage(message) {
+      const el = document.getElementById("cookMessage");
+      el.textContent = message;
+      el.hidden = false;
+    }
+
+    function clearCookMessage() {
+      const el = document.getElementById("cookMessage");
+      el.textContent = "";
+      el.hidden = true;
+    }
+
+    // 仕込みの画面の「手持ちの料理」の一覧を更新する
+    function renderOwnedDishList() {
+      const el = document.getElementById("ownedDishList");
+      const owned = getOwnedDishes();
+
+      el.textContent = owned.length === 0
+        ? "（まだ料理がありません）"
+        : owned.map(function(d) { return "・" + d.name; }).join("\n");
+    }
+
+    // 仕込みの画面を開いたときの準備
+    function updateCookingScreen() {
+      document.getElementById("cookResult").hidden = true;
+      clearCookMessage();
+      renderOwnedDishList();
+      updateCookDetails();
+    }
+
     // 「この組み合わせで料理を作る」ボタンの処理
     function cookDish() {
-      if (phase !== "preparation") return;
+      if (phase !== "cooking") return;
 
       const ingredient = getSelectedIngredient();
       const seasoning = getSelectedSeasoning();
 
       if (!ingredient || !seasoning) {
-        showPrepMessage("食材と調味料を選んでください。");
+        showCookMessage("食材と調味料を選んでください。");
         return;
       }
 
-      clearPrepMessage();
+      clearCookMessage();
 
       const result = generateDish(ingredient, seasoning);
       const dish = result.dish;
@@ -1192,10 +1270,11 @@
       dishes.push(dish);
       ownedDishIds.push(dish.id);
 
-      // 手持ちの料理の選択欄に追加し、できた料理を選んだ状態にする
+      // 営業準備の「手持ちの料理」の選択欄にも追加し、できた料理を選んだ状態にする
       renderDishSelect();
       document.getElementById("dishSelect").value = dish.id;
       updateMenuPreview();
+      renderOwnedDishList();
 
       const lines = ["「" + dish.name + "」ができた。"];
 
@@ -1214,6 +1293,18 @@
         day + "日目：" + ingredient.name + "と" + seasoning.name +
         "で、料理「" + dish.name + "」を作った。"
       );
+    }
+
+    // 「仕込みを終える」ボタンの処理（営業準備へ進む）
+    function finishCooking() {
+      if (phase !== "cooking") return;
+
+      addLog(day + "日目：仕込みを終えた。");
+
+      phase = "preparation";
+      updateMenuPreview();
+      updatePreparationState();
+      updateStatus();
     }
 
     // 料理データを読み込む（data/dishes.json は、なくても動く）
@@ -1916,10 +2007,50 @@
         button.type = "button";
         button.textContent = action.label;
         button.addEventListener("click", function() {
-          morning(action.label);
+          morning(action);
         });
         container.appendChild(button);
       });
+    }
+
+    // 市場で選べる行動のボタンを作る（説明つき）
+    function renderMarketOptions() {
+      const container = document.getElementById("marketOptions");
+      container.replaceChildren();
+
+      MARKET_OPTIONS.forEach(function(option) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "market-option";
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = option.label;
+        button.addEventListener("click", function() {
+          chooseMarketOption(option);
+        });
+
+        const description = document.createElement("p");
+        description.textContent = option.description;
+
+        wrapper.appendChild(button);
+        wrapper.appendChild(description);
+        container.appendChild(wrapper);
+      });
+    }
+
+    // 市場で行動を選んだときの処理
+    // 今は選択肢を出すだけ。効果は後で実装する
+    function chooseMarketOption(option) {
+      if (phase !== "market") return;
+
+      addLog(
+        day + "日目：市場で「" + option.label + "」を選んだ。（効果は未実装）"
+      );
+
+      phase = "preparation";
+      updateMenuPreview();
+      updatePreparationState();
+      updateStatus();
     }
 
     function updateStatus() {
@@ -1929,12 +2060,16 @@
 
       const phaseNames = {
         morning: "朝の行動",
+        cooking: "酒場で仕込み",
+        market: "市場",
         preparation: "営業準備",
         tavern: "酒場の営業"
       };
 
       document.getElementById("phase").textContent = phaseNames[phase];
       document.getElementById("morningSection").hidden = phase !== "morning";
+      document.getElementById("cookingSection").hidden = phase !== "cooking";
+      document.getElementById("marketSection").hidden = phase !== "market";
       document.getElementById("preparationSection").hidden =
         phase !== "preparation";
       document.getElementById("tavernSection").hidden = phase !== "tavern";
@@ -1962,28 +2097,75 @@
       el.hidden = true;
     }
 
-    function morning(place) {
+    // 営業準備の画面を開いたときの準備
+    // 手持ちの料理が1つもないときは、営業できないので、その旨を出して、営業せずに終えるボタンを出す
+    function updatePreparationState() {
+      const hasDish = getOwnedDishes().length > 0;
+
+      document.getElementById("openTavernButton").disabled = !hasDish;
+      document.getElementById("skipDayButton").hidden = hasDish;
+
+      if (hasDish) {
+        clearPrepMessage();
+      } else {
+        showPrepMessage(
+          "手持ちの料理がないので、営業できません。" +
+          "（朝の行動で「酒場で仕込みをする」を選ぶと、料理を作れます）"
+        );
+      }
+    }
+
+    // 手持ちの料理がない日に、営業せずに1日を終える
+    function skipDay() {
+      if (phase !== "preparation") return;
+      if (getOwnedDishes().length > 0) return;
+
+      addLog(day + "日目：料理がなかったので、営業せずに1日を終えた。");
+
+      day++;
+      phase = "morning";
+      handledCount = 0;
+      currentAdventurerIndex = 0;
+
+      document.getElementById("morningResult").textContent =
+        "今日の行動を選んでください。";
+
+      clearPrepMessage();
+
+      addLog(day + "日目：新しい朝を迎えました。");
+      updateStatus();
+    }
+
+    // 朝の行動を選んだときの処理
+    // 「酒場で仕込みをする」は仕込みの画面、「市場に行く」は市場の画面、
+    // それ以外は営業準備へ進む
+    function morning(action) {
       if (phase !== "morning") return;
 
-      phase = "preparation";
       document.getElementById("morningResult").textContent =
-        "「" + place + "」を選びました。";
+        "「" + action.label + "」を選びました。";
 
       // 今は、どの行動も同じ効果（あとで行動ごとに変えられる）
       money += 100;
       reputation += 1;
 
       addLog(
-        day + "日目：朝の行動「" + place +
+        day + "日目：朝の行動「" + action.label +
         "」。所持金 +100G、評判 +1。"
       );
 
-      clearPrepMessage();
+      if (action.type === "cook") {
+        phase = "cooking";
+        updateCookingScreen();
+      } else if (action.type === "market") {
+        phase = "market";
+        renderMarketOptions();
+      } else {
+        phase = "preparation";
+        updateMenuPreview();
+        updatePreparationState();
+      }
 
-      // 朝が来るたびに、前の日の「作った料理」の表示は消す
-      document.getElementById("cookResult").hidden = true;
-
-      updateMenuPreview();
       updateStatus();
     }
 
@@ -2007,7 +2189,7 @@
       const drink = getSelectedDrink();
 
       document.getElementById("dishDetail").textContent =
-        dish ? dishToText(dish) : "料理がありません。上の「料理を作る」で作ってください。";
+        dish ? dishToText(dish) : "手持ちの料理がありません。";
 
       document.getElementById("drinkDetail").textContent =
         drink ? drinkToText(drink) : "飲み物を選んでください。";
@@ -2120,7 +2302,7 @@
 
         if (!menu.dish) {
           showPrepMessage(
-            "料理がありません。上の「料理を作る」で、先に料理を作ってください。"
+            "手持ちの料理がありません。朝の行動で「酒場で仕込みをする」を選ぶと、料理を作れます。"
           );
           return;
         }
@@ -2350,10 +2532,21 @@
       openTavern
     );
 
-    // 料理を作るボタン
+    // 営業せずに1日を終えるボタン
+    document.getElementById("skipDayButton").addEventListener(
+      "click",
+      skipDay
+    );
+
+    // 料理を作るボタン・仕込みを終えるボタン
     document.getElementById("cookButton").addEventListener(
       "click",
       cookDish
+    );
+
+    document.getElementById("finishCookingButton").addEventListener(
+      "click",
+      finishCooking
     );
 
     // 食材・調味料を選び直したときに、説明を更新する
@@ -2424,6 +2617,8 @@
           error.message;
 
         document.getElementById("morningSection").hidden = true;
+        document.getElementById("cookingSection").hidden = true;
+        document.getElementById("marketSection").hidden = true;
         document.getElementById("preparationSection").hidden = true;
         document.getElementById("tavernSection").hidden = true;
 
