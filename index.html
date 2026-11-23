@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.27</title>
+  <title>酒場経営ゲーム 試作品0.28</title>
   <style>
     body {
       font-family: sans-serif;
@@ -74,6 +74,10 @@
       font-size: 13px;
       color: #79552b;
       line-height: 1.6;
+    }
+    .owned-summary {
+      font-size: 13px;
+      color: #79552b;
     }
 
     /* 好みの表 */
@@ -177,7 +181,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.27</p>
+  <p>試作品 0.28</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -187,6 +191,7 @@
     <p>現在の段階：<span id="phase" class="status">読み込み中</span></p>
     <p id="saveStatus" class="save-status">調査情報の保存機能が有効です。</p>
     <button onclick="resetKnowledge()">調査情報をリセット</button>
+    <button onclick="resetOwnedItems()">所持品をリセット</button>
   </section>
 
   <section id="loadError" hidden>
@@ -205,6 +210,7 @@
   <section id="cookingSection" hidden>
     <h2>酒場で仕込み</h2>
     <p>食材で食材の種類が決まり、調味料で濃さ・調理法・スタンスのどれか1つが決まります。残りはランダムです。</p>
+    <p id="ownedMaterialSummary" class="owned-summary"></p>
 
     <div class="cook-box">
       <label for="ingredientSelect">食材</label>
@@ -228,8 +234,10 @@
 
   <section id="marketSection" hidden>
     <h2>市場</h2>
-    <p>市場で何をしますか？</p>
+    <p id="marketPrompt">市場で何をしますか？</p>
     <div id="marketOptions"></div>
+    <div id="marketResult" class="menu-box" hidden></div>
+    <button id="finishMarketButton" type="button" hidden>営業準備へ進む</button>
   </section>
 
   <section id="preparationSection" hidden>
@@ -316,16 +324,31 @@
     const INITIAL_OWNED_DRINK_IDS = [];
     let ownedDrinkIds = [];
 
-    // 食材データ（data/ingredients/ の4ファイルをまとめたもの）
+    // 食材データ（マスターデータ：data/ingredients/ の4ファイルをまとめたもの）
     // 各食材に、どの種類のファイルから読んだか（main：肉・魚・穀物・野菜）が付く
     let ingredients = [];
 
-    // 調味料データ（data/seasonings/ の3ファイルをまとめたもの）
+    // 調味料データ（マスターデータ：data/seasonings/ の3ファイルをまとめたもの）
     // 各調味料に、確定させる項目（field）とその値（dishValue）が付く
     let seasonings = [];
 
+    // 所持データ：持っている食材・調味料のID（持っているか否かだけで、個数は持たない）
+    // 仕込みで使っても減らない。ブラウザに保存される
+    let ownedIngredientIds = [];
+    let ownedSeasoningIds = [];
+
     // データ読み込み時の警告（読み込み後に記録へ出す）
     const dataWarnings = [];
+
+    // ===== 所持品の設定 =====
+    // 所持データの保存先
+    const OWNED_SAVE_KEY = "tavernGame_owned_v1";
+
+    // 最初から持っている食材・調味料のレア度の上限（この数以下のものを持って始める）
+    const INITIAL_OWNED_MAX_RARITY = 1;
+
+    // 市場の「買い物をする」で入手できる食材・調味料のレア度の上限
+    const SHOPPING_MAX_RARITY = 3;
 
     // ===== 食材・調味料のファイルの設定 =====
     // 食材：ファイル名と、そのファイルの食材が決める「食材の種類」
@@ -399,7 +422,8 @@
       { label: "裏路地に行く", type: "normal" }
     ];
 
-    // 市場で選べる行動（今は選択肢を出すだけで、効果は未実装）
+    // 市場で選べる行動
+    // 「買い物をする」は効果あり。それ以外は、今は選択肢を出すだけで、効果は未実装
     const MARKET_OPTIONS = [
       {
         id: "shopping",
@@ -610,6 +634,155 @@
         loadKnowledgeDefaults();
         renderAdventurers();
       }
+    }
+
+    // ===== 所持品（持っている食材・調味料）の処理 =====
+
+    // 保存してある所持データを読み込む（なければ null）
+    function loadOwnedItems() {
+      try {
+        const saved = localStorage.getItem(OWNED_SAVE_KEY);
+        if (!saved) return null;
+
+        const data = JSON.parse(saved);
+
+        if (
+          !data ||
+          typeof data !== "object" ||
+          !Array.isArray(data.ingredients) ||
+          !Array.isArray(data.seasonings)
+        ) {
+          return null;
+        }
+
+        return data;
+      } catch (error) {
+        console.error("所持データの読み込みに失敗しました", error);
+        return null;
+      }
+    }
+
+    // 所持データを保存する
+    function saveOwnedItems() {
+      try {
+        localStorage.setItem(
+          OWNED_SAVE_KEY,
+          JSON.stringify({
+            ingredients: ownedIngredientIds,
+            seasonings: ownedSeasoningIds
+          })
+        );
+      } catch (error) {
+        console.error("所持データの保存に失敗しました", error);
+      }
+    }
+
+    // 最初の所持品にする（レア度が INITIAL_OWNED_MAX_RARITY 以下のもの）
+    function setInitialOwnedItems() {
+      ownedIngredientIds = ingredients
+        .filter(function(item) { return item.rarity <= INITIAL_OWNED_MAX_RARITY; })
+        .map(function(item) { return item.id; });
+
+      ownedSeasoningIds = seasonings
+        .filter(function(item) { return item.rarity <= INITIAL_OWNED_MAX_RARITY; })
+        .map(function(item) { return item.id; });
+    }
+
+    // 食材・調味料が1つも手元にないと仕込みができないので、
+    // 空の場合は、いちばんレア度の低いものを1つ持たせる
+    function ensureOwnedStarters() {
+      function lowestRarity(list) {
+        return list.slice().sort(function(a, b) {
+          return a.rarity - b.rarity;
+        })[0];
+      }
+
+      if (ownedIngredientIds.length === 0 && ingredients.length > 0) {
+        ownedIngredientIds = [lowestRarity(ingredients).id];
+      }
+
+      if (ownedSeasoningIds.length === 0 && seasonings.length > 0) {
+        ownedSeasoningIds = [lowestRarity(seasonings).id];
+      }
+    }
+
+    // ゲーム開始時に、所持データを用意する
+    // 保存データがあればそれを使い（データから消えたIDは外す）、なければ最初の所持品にする
+    function initOwnedItems() {
+      const saved = loadOwnedItems();
+
+      if (saved) {
+        ownedIngredientIds = saved.ingredients.filter(function(id) {
+          return ingredients.some(function(item) { return item.id === id; });
+        });
+
+        ownedSeasoningIds = saved.seasonings.filter(function(id) {
+          return seasonings.some(function(item) { return item.id === id; });
+        });
+      } else {
+        setInitialOwnedItems();
+      }
+
+      ensureOwnedStarters();
+      saveOwnedItems();
+    }
+
+    // 所持品をリセットする（最初の所持品に戻す）
+    function resetOwnedItems() {
+      if (!confirm("持っている食材と調味料を、最初の状態に戻しますか？")) {
+        return;
+      }
+
+      setInitialOwnedItems();
+      ensureOwnedStarters();
+      saveOwnedItems();
+
+      addLog("持っている食材と調味料を、最初の状態に戻しました。");
+
+      if (phase === "cooking") {
+        updateCookingScreen();
+      }
+    }
+
+    // 市場の買い物：まだ持っていない、レア度が SHOPPING_MAX_RARITY 以下の
+    // 食材・調味料から、ランダムに1つ手に入れる
+    // 手に入れたものを返す（買えるものがなければ null）
+    function buyRandomMaterial() {
+      const candidates = [];
+
+      ingredients.forEach(function(item) {
+        if (
+          item.rarity <= SHOPPING_MAX_RARITY &&
+          !ownedIngredientIds.includes(item.id)
+        ) {
+          candidates.push({ kind: "ingredient", kindLabel: "食材", item: item });
+        }
+      });
+
+      seasonings.forEach(function(item) {
+        if (
+          item.rarity <= SHOPPING_MAX_RARITY &&
+          !ownedSeasoningIds.includes(item.id)
+        ) {
+          candidates.push({ kind: "seasoning", kindLabel: "調味料", item: item });
+        }
+      });
+
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      const picked = pickRandom(candidates);
+
+      if (picked.kind === "ingredient") {
+        ownedIngredientIds.push(picked.item.id);
+      } else {
+        ownedSeasoningIds.push(picked.item.id);
+      }
+
+      saveOwnedItems();
+
+      return picked;
     }
 
     // 保存データが空のときに、各冒険者の調査段階を0で初期化する
@@ -1089,7 +1262,7 @@
       seasonings = list;
     }
 
-    // 食材の選択欄を作る（食材の種類ごとにグループ分け）
+    // 食材の選択欄を作る（持っている食材だけ。食材の種類ごとにグループ分け）
     function renderIngredientSelect() {
       const select = document.getElementById("ingredientSelect");
       select.replaceChildren();
@@ -1100,6 +1273,7 @@
 
         ingredients.forEach(function(item) {
           if (item.main !== def.main) return;
+          if (!ownedIngredientIds.includes(item.id)) return;
 
           const option = document.createElement("option");
           option.value = item.id;
@@ -1117,7 +1291,7 @@
       }
     }
 
-    // 調味料の選択欄を作る（確定させる項目ごとにグループ分け）
+    // 調味料の選択欄を作る（持っている調味料だけ。確定させる項目ごとにグループ分け）
     function renderSeasoningSelect() {
       const select = document.getElementById("seasoningSelect");
       select.replaceChildren();
@@ -1128,6 +1302,7 @@
 
         seasonings.forEach(function(item) {
           if (item.field !== def.field) return;
+          if (!ownedSeasoningIds.includes(item.id)) return;
 
           const option = document.createElement("option");
           option.value = item.id;
@@ -1175,6 +1350,14 @@
         ? seasoning.name + "\n" + seasoning.description +
           "\n確定する項目：" + seasoning.fieldLabel + "＝" + seasoning.dishValue
         : "調味料を選んでください。";
+    }
+
+    // 持っている食材・調味料の数を表示する
+    function updateOwnedMaterialSummary() {
+      document.getElementById("ownedMaterialSummary").textContent =
+        "持っている食材：" + ownedIngredientIds.length + " / " +
+        ingredients.length + "種　調味料：" + ownedSeasoningIds.length +
+        " / " + seasonings.length + "種";
     }
 
     // 料理名を作る
@@ -1243,9 +1426,13 @@
     }
 
     // 仕込みの画面を開いたときの準備
+    // （持っている食材・調味料の選択欄を作り直す）
     function updateCookingScreen() {
       document.getElementById("cookResult").hidden = true;
       clearCookMessage();
+      renderIngredientSelect();
+      renderSeasoningSelect();
+      updateOwnedMaterialSummary();
       renderOwnedDishList();
       updateCookDetails();
     }
@@ -2013,6 +2200,16 @@
       });
     }
 
+    // 市場の画面を開いたときの準備（選択肢を出し、結果の表示は隠す）
+    function resetMarketScreen() {
+      renderMarketOptions();
+
+      document.getElementById("marketPrompt").hidden = false;
+      document.getElementById("marketOptions").hidden = false;
+      document.getElementById("marketResult").hidden = true;
+      document.getElementById("finishMarketButton").hidden = true;
+    }
+
     // 市場で選べる行動のボタンを作る（説明つき）
     function renderMarketOptions() {
       const container = document.getElementById("marketOptions");
@@ -2039,13 +2236,45 @@
     }
 
     // 市場で行動を選んだときの処理
-    // 今は選択肢を出すだけ。効果は後で実装する
+    // 「買い物をする」は、食材か調味料を1つ入手する。
+    // それ以外は、今は選択肢を出すだけで、効果は未実装
     function chooseMarketOption(option) {
       if (phase !== "market") return;
 
-      addLog(
-        day + "日目：市場で「" + option.label + "」を選んだ。（効果は未実装）"
-      );
+      let message = "";
+
+      if (option.id === "shopping") {
+        const bought = buyRandomMaterial();
+
+        if (bought) {
+          message =
+            "市場で買い物をして、" + bought.kindLabel + "「" +
+            bought.item.name + "」（レア度" + bought.item.rarity +
+            "）を手に入れた。\n" + bought.item.description;
+        } else {
+          message =
+            "市場で買い物をしたが、買えるもの（レア度" +
+            SHOPPING_MAX_RARITY + "以下）は、もうすべて持っている。";
+        }
+      } else {
+        message = "「" + option.label + "」を選んだ。（効果は未実装）";
+      }
+
+      addLog(day + "日目：" + message.split("\n")[0]);
+
+      document.getElementById("marketPrompt").hidden = true;
+      document.getElementById("marketOptions").hidden = true;
+
+      const resultBox = document.getElementById("marketResult");
+      resultBox.textContent = message;
+      resultBox.hidden = false;
+
+      document.getElementById("finishMarketButton").hidden = false;
+    }
+
+    // 「営業準備へ進む」ボタンの処理（市場から営業準備へ）
+    function finishMarket() {
+      if (phase !== "market") return;
 
       phase = "preparation";
       updateMenuPreview();
@@ -2159,7 +2388,7 @@
         updateCookingScreen();
       } else if (action.type === "market") {
         phase = "market";
-        renderMarketOptions();
+        resetMarketScreen();
       } else {
         phase = "preparation";
         updateMenuPreview();
@@ -2549,6 +2778,12 @@
       finishCooking
     );
 
+    // 市場から営業準備へ進むボタン
+    document.getElementById("finishMarketButton").addEventListener(
+      "click",
+      finishMarket
+    );
+
     // 食材・調味料を選び直したときに、説明を更新する
     ["ingredientSelect", "seasoningSelect"].forEach(function(id) {
       document.getElementById(id).addEventListener(
@@ -2577,6 +2812,9 @@
         await loadDishes();
         await loadDrinks();
 
+        // 持っている食材・調味料を用意する
+        initOwnedItems();
+
         renderAdventurers();
         renderIngredientSelect();
         renderSeasoningSelect();
@@ -2588,6 +2826,10 @@
           "人、食材" + ingredients.length +
           "種、調味料" + seasonings.length +
           "種、飲み物" + drinks.length + "種）"
+        );
+        addLog(
+          "持っている食材：" + ownedIngredientIds.length +
+          "種、調味料：" + ownedSeasoningIds.length + "種。"
         );
 
         dataWarnings.forEach(function(warning) {
