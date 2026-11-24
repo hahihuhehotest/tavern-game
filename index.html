@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.28</title>
+  <title>酒場経営ゲーム 試作品0.29</title>
   <style>
     body {
       font-family: sans-serif;
@@ -78,6 +78,36 @@
     .owned-summary {
       font-size: 13px;
       color: #79552b;
+    }
+
+    /* 同じ名前の料理ができたときの、選択の表示 */
+    .choice-box {
+      border: 2px solid #c9a15b;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 12px 0;
+      background: #fff6e0;
+    }
+    .choice-box h3 { margin-top: 0; }
+    .compare-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin: 8px 0;
+      font-size: 14px;
+    }
+    .compare-table th,
+    .compare-table td {
+      border: 1px solid #dfd0bb;
+      padding: 6px 4px;
+      text-align: center;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+    .compare-table th { background: #efe4d2; }
+    .compare-table tr.diff td {
+      background: #fde9b8;
+      font-weight: bold;
     }
 
     /* 好みの表 */
@@ -181,7 +211,7 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.28</p>
+  <p>試作品 0.29</p>
 
   <section>
     <h2>酒場の状態</h2>
@@ -224,6 +254,14 @@
       <button id="cookButton" type="button">この組み合わせで料理を作る</button>
       <p id="cookMessage" class="error" hidden></p>
       <div id="cookResult" class="menu-box" hidden></div>
+
+      <div id="dishChoiceBox" class="choice-box" hidden>
+        <h3>同じ名前の料理があります</h3>
+        <p id="dishChoiceName"></p>
+        <table id="dishCompareTable" class="compare-table"></table>
+        <button id="keepOldDishButton" type="button">前の料理を残す</button>
+        <button id="keepNewDishButton" type="button">今回の料理に入れ替える</button>
+      </div>
     </div>
 
     <h3>手持ちの料理</h3>
@@ -304,6 +342,7 @@
 
     // 料理データ
     // data/dishes.json に書いた料理（あれば）と、ゲーム中に作った料理が入る
+    // 作った料理には generated: true が付く（こちらはブラウザに保存される）
     let dishes = [];
 
     // 手持ちの料理ID。
@@ -314,6 +353,13 @@
 
     // ゲーム中に作った料理の数（料理のIDをつけるために使う）
     let generatedCounter = 0;
+
+    // 作った料理の保存先
+    const DISH_SAVE_KEY = "tavernGame_dishes_v1";
+
+    // 同じ名前の料理ができて、どちらを残すか選んでいる最中の情報
+    // （選んでいないときは null）
+    let pendingDish = null;
 
     // 飲み物データ（drinks.json の全飲み物）
     let drinks = [];
@@ -727,9 +773,11 @@
       saveOwnedItems();
     }
 
-    // 所持品をリセットする（最初の所持品に戻す）
+    // 所持品をリセットする（持っている食材・調味料を最初の状態に戻し、作った料理も消す）
     function resetOwnedItems() {
-      if (!confirm("持っている食材と調味料を、最初の状態に戻しますか？")) {
+      if (!confirm(
+        "持っている食材と調味料を最初の状態に戻し、作った料理もすべて消します。よろしいですか？"
+      )) {
         return;
       }
 
@@ -737,7 +785,19 @@
       ensureOwnedStarters();
       saveOwnedItems();
 
-      addLog("持っている食材と調味料を、最初の状態に戻しました。");
+      // 作った料理を消す
+      dishes = dishes.filter(function(d) { return !d.generated; });
+      ownedDishIds = ownedDishIds.filter(function(id) {
+        return dishes.some(function(d) { return d.id === id; });
+      });
+      generatedCounter = 0;
+      pendingDish = null;
+      saveGeneratedDishes();
+
+      renderDishSelect();
+      updateMenuPreview();
+
+      addLog("持っている食材・調味料を最初の状態に戻し、作った料理を消しました。");
 
       if (phase === "cooking") {
         updateCookingScreen();
@@ -1395,11 +1455,140 @@
       dish.id = "generated_" + generatedCounter;
       dish.name = buildDishName(ingredient, seasoning, dish.cooking);
       dish.generated = true;
+      dish.ingredientId = ingredient.id;
+      dish.seasoningId = seasoning.id;
 
       return {
         dish: dish,
         fixedFields: fixedFields
       };
+    }
+
+    // ===== 作った料理の保存 =====
+
+    // 作った料理を保存する（持っているもののうち、generated が付いたものだけ）
+    function saveGeneratedDishes() {
+      try {
+        const list = dishes
+          .filter(function(d) {
+            return d.generated && ownedDishIds.includes(d.id);
+          })
+          .map(function(d) {
+            return {
+              id: d.id,
+              name: d.name,
+              main: d.main,
+              richness: d.richness,
+              cooking: d.cooking,
+              style: d.style,
+              ingredientId: d.ingredientId || "",
+              seasoningId: d.seasoningId || ""
+            };
+          });
+
+        localStorage.setItem(
+          DISH_SAVE_KEY,
+          JSON.stringify({ counter: generatedCounter, dishes: list })
+        );
+      } catch (error) {
+        console.error("作った料理の保存に失敗しました", error);
+      }
+    }
+
+    // 保存してある、作った料理を読み込んで、手持ちに加える
+    function loadGeneratedDishes() {
+      let saved = null;
+
+      try {
+        const raw = localStorage.getItem(DISH_SAVE_KEY);
+        if (raw) {
+          saved = JSON.parse(raw);
+        }
+      } catch (error) {
+        console.error("作った料理の読み込みに失敗しました", error);
+        return;
+      }
+
+      if (!saved || !Array.isArray(saved.dishes)) {
+        return;
+      }
+
+      let maxCounter = Number.isInteger(saved.counter) ? saved.counter : 0;
+      let skipped = 0;
+
+      saved.dishes.forEach(function(d) {
+        const valid =
+          d &&
+          typeof d.id === "string" &&
+          typeof d.name === "string" &&
+          Object.keys(validDishValues).every(function(key) {
+            return validDishValues[key].includes(d[key]);
+          });
+
+        if (!valid) {
+          skipped++;
+          return;
+        }
+
+        if (dishes.some(function(x) { return x.id === d.id; })) {
+          return;
+        }
+
+        dishes.push({
+          id: d.id,
+          name: d.name,
+          main: d.main,
+          richness: d.richness,
+          cooking: d.cooking,
+          style: d.style,
+          generated: true,
+          ingredientId: d.ingredientId || "",
+          seasoningId: d.seasoningId || ""
+        });
+        ownedDishIds.push(d.id);
+
+        const match = /^generated_(\d+)$/.exec(d.id);
+        if (match) {
+          maxCounter = Math.max(maxCounter, Number(match[1]));
+        }
+      });
+
+      generatedCounter = maxCounter;
+
+      if (skipped > 0) {
+        dataWarnings.push(
+          "保存してあった、作った料理のうち " + skipped +
+          " 品は、今のデータの値と合わなかったため、読み込みませんでした。"
+        );
+      }
+
+      renderDishSelect();
+    }
+
+    // 作った料理を、手持ちに加えて保存する。営業準備の選択欄にも追加し、選んだ状態にする
+    function addGeneratedDish(dish) {
+      dishes.push(dish);
+      ownedDishIds.push(dish.id);
+      saveGeneratedDishes();
+
+      renderDishSelect();
+      document.getElementById("dishSelect").value = dish.id;
+      updateMenuPreview();
+      renderOwnedDishList();
+    }
+
+    // 2つの料理の、4つの項目がすべて同じか
+    function dishValuesEqual(a, b) {
+      return Object.keys(dishFieldLabels).every(function(field) {
+        return a[field] === b[field];
+      });
+    }
+
+    // すでに持っている「作った料理」から、同じ名前のものを探す
+    function findOwnedGeneratedDishByName(name) {
+      return getOwnedDishes().find(function(d) {
+        return d.generated && d.name === name;
+      });
     }
 
     // 仕込みの画面に、赤字でメッセージを出す
@@ -1425,9 +1614,134 @@
         : owned.map(function(d) { return "・" + d.name; }).join("\n");
     }
 
+    // 「料理を作る」「仕込みを終える」ボタンを、押せなくする／押せるようにする
+    function setCookingButtonsDisabled(disabled) {
+      document.getElementById("cookButton").disabled = disabled;
+      document.getElementById("finishCookingButton").disabled = disabled;
+    }
+
+    // 作った料理の結果を表示する
+    function showCookResult(dish, fixedFields, headline) {
+      const lines = [headline];
+
+      Object.keys(dishFieldLabels).forEach(function(field) {
+        lines.push(
+          dishFieldLabels[field] + "：" + dish[field] +
+          (fixedFields.includes(field) ? "（確定）" : "（ランダム）")
+        );
+      });
+
+      const resultBox = document.getElementById("cookResult");
+      resultBox.textContent = lines.join("\n");
+      resultBox.hidden = false;
+    }
+
+    // 同じ名前の料理の選択を、閉じる
+    function hideDishChoice() {
+      pendingDish = null;
+      document.getElementById("dishChoiceBox").hidden = true;
+      setCookingButtonsDisabled(false);
+    }
+
+    // 同じ名前で中身が違う料理ができたとき、前の料理と今回の料理を並べて、選んでもらう
+    function startDishChoice(existing, result) {
+      pendingDish = {
+        existing: existing,
+        newDish: result.dish,
+        fixedFields: result.fixedFields
+      };
+
+      document.getElementById("dishChoiceName").textContent =
+        "「" + result.dish.name +
+        "」が、すでにあります。違いを見て、残すほうを選んでください。";
+
+      const table = document.getElementById("dishCompareTable");
+      table.replaceChildren();
+
+      const head = document.createElement("tr");
+      ["項目", "前に作った料理", "今回できた料理"].forEach(function(text) {
+        const th = document.createElement("th");
+        th.textContent = text;
+        head.appendChild(th);
+      });
+      table.appendChild(head);
+
+      Object.keys(dishFieldLabels).forEach(function(field) {
+        const row = document.createElement("tr");
+
+        if (existing[field] !== result.dish[field]) {
+          row.className = "diff";
+        }
+
+        const label = document.createElement("th");
+        label.textContent = dishFieldLabels[field];
+        row.appendChild(label);
+
+        const oldCell = document.createElement("td");
+        oldCell.textContent = existing[field];
+        row.appendChild(oldCell);
+
+        const newCell = document.createElement("td");
+        newCell.textContent = result.dish[field];
+        row.appendChild(newCell);
+
+        table.appendChild(row);
+      });
+
+      document.getElementById("cookResult").hidden = true;
+      document.getElementById("dishChoiceBox").hidden = false;
+      setCookingButtonsDisabled(true);
+    }
+
+    // 「前の料理を残す」「今回の料理に入れ替える」ボタンの処理
+    // keepNew が true なら、前の料理を手放して、今回の料理に入れ替える
+    function resolveDishChoice(keepNew) {
+      if (!pendingDish) return;
+
+      const existing = pendingDish.existing;
+      const newDish = pendingDish.newDish;
+      const fixedFields = pendingDish.fixedFields;
+
+      hideDishChoice();
+
+      if (keepNew) {
+        dishes = dishes.filter(function(d) { return d.id !== existing.id; });
+        ownedDishIds = ownedDishIds.filter(function(id) {
+          return id !== existing.id;
+        });
+
+        addGeneratedDish(newDish);
+
+        showCookResult(
+          newDish,
+          fixedFields,
+          "「" + newDish.name + "」を、今回できた料理に入れ替えた。"
+        );
+        addLog(
+          day + "日目：同じ名前の料理「" + newDish.name +
+          "」を、今回できた料理に入れ替えた。"
+        );
+      } else {
+        saveGeneratedDishes();
+
+        showCookResult(
+          existing,
+          [],
+          "前に作った「" + existing.name + "」を残した。（今回の料理は持たなかった）"
+        );
+        addLog(
+          day + "日目：同じ名前の料理「" + existing.name +
+          "」は、前に作ったほうを残した。"
+        );
+      }
+
+      renderOwnedDishList();
+    }
+
     // 仕込みの画面を開いたときの準備
     // （持っている食材・調味料の選択欄を作り直す）
     function updateCookingScreen() {
+      hideDishChoice();
       document.getElementById("cookResult").hidden = true;
       clearCookMessage();
       renderIngredientSelect();
@@ -1441,6 +1755,13 @@
     function cookDish() {
       if (phase !== "cooking") return;
 
+      if (pendingDish) {
+        showCookMessage(
+          "先に、前の料理と今回の料理のどちらを残すか選んでください。"
+        );
+        return;
+      }
+
       const ingredient = getSelectedIngredient();
       const seasoning = getSelectedSeasoning();
 
@@ -1453,28 +1774,44 @@
 
       const result = generateDish(ingredient, seasoning);
       const dish = result.dish;
+      const existing = findOwnedGeneratedDishByName(dish.name);
 
-      dishes.push(dish);
-      ownedDishIds.push(dish.id);
+      // 名前も中身も全く同じ料理：増やさない
+      if (existing && dishValuesEqual(existing, dish)) {
+        saveGeneratedDishes();
 
-      // 営業準備の「手持ちの料理」の選択欄にも追加し、できた料理を選んだ状態にする
-      renderDishSelect();
-      document.getElementById("dishSelect").value = dish.id;
-      updateMenuPreview();
-      renderOwnedDishList();
-
-      const lines = ["「" + dish.name + "」ができた。"];
-
-      Object.keys(dishFieldLabels).forEach(function(field) {
-        lines.push(
-          dishFieldLabels[field] + "：" + dish[field] +
-          (result.fixedFields.includes(field) ? "（確定）" : "（ランダム）")
+        showCookResult(
+          dish,
+          result.fixedFields,
+          "「" + dish.name +
+          "」ができたが、すでに持っている料理と全く同じだったので、増えなかった。"
         );
-      });
+        addLog(
+          day + "日目：" + ingredient.name + "と" + seasoning.name +
+          "で、すでに持っている「" + dish.name + "」と同じ料理ができた。（増えなかった）"
+        );
+        return;
+      }
 
-      const resultBox = document.getElementById("cookResult");
-      resultBox.textContent = lines.join("\n");
-      resultBox.hidden = false;
+      // 名前は同じで、中身が違う料理：どちらを残すか選んでもらう
+      if (existing) {
+        addLog(
+          day + "日目：" + ingredient.name + "と" + seasoning.name +
+          "で、同じ名前の料理「" + dish.name +
+          "」ができた。どちらを残すか選んでください。"
+        );
+        startDishChoice(existing, result);
+        return;
+      }
+
+      // 新しい名前の料理：そのまま手持ちに加える
+      addGeneratedDish(dish);
+
+      showCookResult(
+        dish,
+        result.fixedFields,
+        "「" + dish.name + "」ができた。"
+      );
 
       addLog(
         day + "日目：" + ingredient.name + "と" + seasoning.name +
@@ -1485,6 +1822,7 @@
     // 「仕込みを終える」ボタンの処理（営業準備へ進む）
     function finishCooking() {
       if (phase !== "cooking") return;
+      if (pendingDish) return;
 
       addLog(day + "日目：仕込みを終えた。");
 
@@ -2778,6 +3116,17 @@
       finishCooking
     );
 
+    // 同じ名前の料理ができたときの、選択ボタン
+    document.getElementById("keepOldDishButton").addEventListener(
+      "click",
+      function() { resolveDishChoice(false); }
+    );
+
+    document.getElementById("keepNewDishButton").addEventListener(
+      "click",
+      function() { resolveDishChoice(true); }
+    );
+
     // 市場から営業準備へ進むボタン
     document.getElementById("finishMarketButton").addEventListener(
       "click",
@@ -2810,6 +3159,10 @@
         await loadIngredients();
         await loadSeasonings();
         await loadDishes();
+
+        // 保存してある、作った料理を手持ちに加える
+        loadGeneratedDishes();
+
         await loadDrinks();
 
         // 持っている食材・調味料を用意する
@@ -2829,7 +3182,8 @@
         );
         addLog(
           "持っている食材：" + ownedIngredientIds.length +
-          "種、調味料：" + ownedSeasoningIds.length + "種。"
+          "種、調味料：" + ownedSeasoningIds.length +
+          "種、料理：" + getOwnedDishes().length + "品。"
         );
 
         dataWarnings.forEach(function(warning) {
