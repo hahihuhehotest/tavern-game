@@ -688,4 +688,2646 @@
 
     // ===== 所持品（持っている食材・調味料）の処理 =====
 
-    // 保存
+    // 保存してある所持データを読み込む（なければ null）
+    function loadOwnedItems() {
+      try {
+        const saved = localStorage.getItem(OWNED_SAVE_KEY);
+        if (!saved) return null;
+
+        const data = JSON.parse(saved);
+
+        if (
+          !data ||
+          typeof data !== "object" ||
+          !Array.isArray(data.ingredients) ||
+          !Array.isArray(data.seasonings)
+        ) {
+          return null;
+        }
+
+        return data;
+      } catch (error) {
+        console.error("所持データの読み込みに失敗しました", error);
+        return null;
+      }
+    }
+
+    // 所持データを保存する
+    function saveOwnedItems() {
+      try {
+        localStorage.setItem(
+          OWNED_SAVE_KEY,
+          JSON.stringify({
+            ingredients: ownedIngredientIds,
+            seasonings: ownedSeasoningIds
+          })
+        );
+      } catch (error) {
+        console.error("所持データの保存に失敗しました", error);
+      }
+    }
+
+    // 最初の所持品にする（レア度が INITIAL_OWNED_MAX_RARITY 以下のもの）
+    function setInitialOwnedItems() {
+      ownedIngredientIds = ingredients
+        .filter(function(item) { return item.rarity <= INITIAL_OWNED_MAX_RARITY; })
+        .map(function(item) { return item.id; });
+
+      ownedSeasoningIds = seasonings
+        .filter(function(item) { return item.rarity <= INITIAL_OWNED_MAX_RARITY; })
+        .map(function(item) { return item.id; });
+    }
+
+    // 食材・調味料が1つも手元にないと仕込みができないので、
+    // 空の場合は、いちばんレア度の低いものを1つ持たせる
+    function ensureOwnedStarters() {
+      function lowestRarity(list) {
+        return list.slice().sort(function(a, b) {
+          return a.rarity - b.rarity;
+        })[0];
+      }
+
+      if (ownedIngredientIds.length === 0 && ingredients.length > 0) {
+        ownedIngredientIds = [lowestRarity(ingredients).id];
+      }
+
+      if (ownedSeasoningIds.length === 0 && seasonings.length > 0) {
+        ownedSeasoningIds = [lowestRarity(seasonings).id];
+      }
+    }
+
+    // ゲーム開始時に、所持データを用意する
+    // 保存データがあればそれを使い（データから消えたIDは外す）、なければ最初の所持品にする
+    function initOwnedItems() {
+      const saved = loadOwnedItems();
+
+      if (saved) {
+        ownedIngredientIds = saved.ingredients.filter(function(id) {
+          return ingredients.some(function(item) { return item.id === id; });
+        });
+
+        ownedSeasoningIds = saved.seasonings.filter(function(id) {
+          return seasonings.some(function(item) { return item.id === id; });
+        });
+      } else {
+        setInitialOwnedItems();
+      }
+
+      ensureOwnedStarters();
+      saveOwnedItems();
+    }
+
+    // 所持品をリセットする（持っている食材・調味料を最初の状態に戻し、作った料理も消す）
+    function resetOwnedItems() {
+      if (!confirm(
+        "持っている食材と調味料を最初の状態に戻し、作った料理もすべて消します。よろしいですか？"
+      )) {
+        return;
+      }
+
+      setInitialOwnedItems();
+      ensureOwnedStarters();
+      saveOwnedItems();
+
+      // 作った料理を消す
+      dishes = dishes.filter(function(d) { return !d.generated; });
+      ownedDishIds = ownedDishIds.filter(function(id) {
+        return dishes.some(function(d) { return d.id === id; });
+      });
+      generatedCounter = 0;
+      pendingDish = null;
+      saveGeneratedDishes();
+
+      renderDishSelect();
+      updateMenuPreview();
+
+      addLog("持っている食材・調味料を最初の状態に戻し、作った料理を消しました。");
+
+      if (phase === "cooking") {
+        updateCookingScreen();
+      }
+    }
+
+    // 市場の買い物：まだ持っていない、レア度が SHOPPING_MAX_RARITY 以下の
+    // 食材・調味料から、ランダムに1つ手に入れる
+    // 手に入れたものを返す（買えるものがなければ null）
+    function buyRandomMaterial() {
+      const candidates = [];
+
+      ingredients.forEach(function(item) {
+        if (
+          item.rarity <= SHOPPING_MAX_RARITY &&
+          !ownedIngredientIds.includes(item.id)
+        ) {
+          candidates.push({ kind: "ingredient", kindLabel: "食材", item: item });
+        }
+      });
+
+      seasonings.forEach(function(item) {
+        if (
+          item.rarity <= SHOPPING_MAX_RARITY &&
+          !ownedSeasoningIds.includes(item.id)
+        ) {
+          candidates.push({ kind: "seasoning", kindLabel: "調味料", item: item });
+        }
+      });
+
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      const picked = pickRandom(candidates);
+
+      if (picked.kind === "ingredient") {
+        ownedIngredientIds.push(picked.item.id);
+      } else {
+        ownedSeasoningIds.push(picked.item.id);
+      }
+
+      saveOwnedItems();
+
+      return picked;
+    }
+
+    // 保存データが空のときに、各冒険者の調査段階を0で初期化する
+    function loadKnowledgeDefaults() {
+      adventurers.forEach(function(a) {
+        if (
+          !knowledge[a.id] ||
+          typeof knowledge[a.id] !== "object" ||
+          Array.isArray(knowledge[a.id])
+        ) {
+          knowledge[a.id] = {};
+        }
+
+        abilityFields.concat(personalityFields).forEach(function(field) {
+          const stage = knowledge[a.id][field.key];
+
+          if (!Number.isInteger(stage) || stage < 0 || stage > 3) {
+            knowledge[a.id][field.key] = 0;
+          }
+        });
+
+        // 性格（勇敢さ・判断傾向）は1回で確定するので、途中段階のものは確定に直す
+        personalityFields.forEach(function(field) {
+          if (knowledge[a.id][field.key] > 0) {
+            knowledge[a.id][field.key] = 3;
+          }
+        });
+
+        // 料理・酒の好みの調査状況
+        // 項目ごと・値ごとに、判明した評価点を保存する（未判明は null）
+        // 例：foodPref.main = { "肉": 5, "魚": null, "穀物": null, "野菜": null }
+        // 保存してある評価点が、今の冒険者データの評価点と違う場合は、未判明に戻す
+        PREF_CATEGORY_NAMES.forEach(function(category) {
+          const info = PREF_CATEGORIES[category];
+          const savedStore = knowledge[a.id][info.storeKey];
+          const store = {};
+
+          Object.keys(info.values).forEach(function(key) {
+            let savedEntry = {};
+            if (
+              savedStore &&
+              typeof savedStore === "object" &&
+              savedStore[key] &&
+              typeof savedStore[key] === "object" &&
+              !Array.isArray(savedStore[key])
+            ) {
+              savedEntry = savedStore[key];
+            }
+
+            const entry = {};
+            info.values[key].forEach(function(value) {
+              const rating = savedEntry[value];
+              const actual = a.preferences[category][key][value];
+
+              entry[value] =
+                VALID_RATINGS.includes(rating) && rating === actual
+                  ? rating
+                  : null;
+            });
+
+            store[key] = entry;
+          });
+
+          knowledge[a.id][info.storeKey] = store;
+        });
+      });
+    }
+
+    // 能力の項目
+    // key は冒険者データ（adventurers.json）の名前、label は画面に出す名前
+    // （「理解力」の key は、データを変えなくて済むよう、以前のまま magic にしてある）
+    const abilityFields = [
+      { key: "stamina", label: "体力" },
+      { key: "magic", label: "理解力" },
+      { key: "speed", label: "速さ" },
+      { key: "experience", label: "経験" }
+    ];
+
+    const personalityFields = [
+      {
+        key: "bravery",
+        label: "勇敢さ",
+        values: {
+          brave: "勇敢",
+          normal: "普通",
+          cautious: "慎重"
+        }
+      },
+      {
+        key: "judgment",
+        label: "判断傾向",
+        values: {
+          intuition: "直感",
+          normal: "普通",
+          deliberation: "熟考"
+        }
+      }
+    ];
+
+    const validRanks = ["S", "A", "B", "C", "D", "E", "F", "G"];
+    const validBravery = ["brave", "normal", "cautious"];
+    const validJudgment = ["intuition", "normal", "deliberation"];
+
+    // 料理の値の一覧
+    // main：食材、richness：濃さ、cooking：調理法、style：スタンス
+    const validDishValues = {
+      main: ["肉", "魚", "穀物", "野菜"],
+      richness: ["こってり", "濃いめ", "普通", "あっさり"],
+      cooking: ["焼き物", "汁物", "煮込み", "生"],
+      style: ["豪快", "精緻", "素朴", "前衛的"]
+    };
+
+    const dishFieldLabels = {
+      main: "食材",
+      richness: "濃さ",
+      cooking: "調理法",
+      style: "スタンス"
+    };
+
+    // 飲み物の値の一覧
+    // type：種類、alcohol：アルコール度数、smell：香り、mouthfeel：口当たり
+    const validDrinkValues = {
+      type: ["麦", "米", "果実", "その他"],
+      alcohol: ["高", "普通", "低", "なし"],
+      smell: ["芳醇", "穏やか", "軽快", "繊細"],
+      mouthfeel: ["キレ", "コク", "ツヤ", "ピュア"]
+    };
+
+    const drinkFieldLabels = {
+      type: "種類",
+      alcohol: "アルコール度数",
+      smell: "香り",
+      mouthfeel: "口当たり"
+    };
+
+    // 好みの対象（料理と酒）
+    // storeKey：調査状況を保存する名前、heading：冒険者の情報の見出し、prefix：判明メッセージの前につける言葉
+    // tableLabels：好みの表の行の名前（スマホの幅に収まるよう短くしてある）
+    const PREF_CATEGORIES = {
+      dish: {
+        storeKey: "foodPref",
+        values: validDishValues,
+        labels: dishFieldLabels,
+        tableLabels: {
+          main: "食材",
+          richness: "濃さ",
+          cooking: "調理法",
+          style: "スタンス"
+        },
+        heading: "料理の好み",
+        prefix: ""
+      },
+      drink: {
+        storeKey: "drinkPref",
+        values: validDrinkValues,
+        labels: drinkFieldLabels,
+        tableLabels: {
+          type: "種類",
+          alcohol: "度数",
+          smell: "香り",
+          mouthfeel: "口当たり"
+        },
+        heading: "酒の好み",
+        prefix: "酒の"
+      }
+    };
+
+    const PREF_CATEGORY_NAMES = ["dish", "drink"];
+
+    // 配列からランダムに1つ選ぶ
+    function pickRandom(list) {
+      return list[Math.floor(Math.random() * list.length)];
+    }
+
+    // 評価点から評価の名前（大好き など）を返す
+    function getRatingLabel(rating) {
+      return RATING_LABELS[String(rating)];
+    }
+
+    // JSONファイルを読み込む（10秒で打ち切り、失敗の理由を分かりやすく返す）
+    // ファイルが見つからないときは、エラーに httpStatus（404 など）が付く
+    async function fetchJson(path, label) {
+      const controller = new AbortController();
+      const timer = setTimeout(function() {
+        controller.abort();
+      }, 10000);
+
+      try {
+        const response = await fetch(path, { signal: controller.signal });
+
+        if (!response.ok) {
+          const httpError = new Error(
+            label + "データを取得できませんでした。HTTP " + response.status +
+            "（" + path + " の場所と名前を確認してください）"
+          );
+          httpError.httpStatus = response.status;
+          throw httpError;
+        }
+
+        return await response.json();
+      } catch (error) {
+        if (error.name === "AbortError") {
+          throw new Error(
+            label + "データの取得が10秒以内に終わりませんでした。"
+          );
+        }
+
+        if (error instanceof SyntaxError) {
+          throw new Error(
+            label + "データのJSON形式が正しくありません。" +
+            "カンマの抜けや余分なカンマ、ダブルクォートの閉じ忘れを確認してください。" +
+            "（" + path + "：" + error.message + "）"
+          );
+        }
+
+        if (error instanceof TypeError) {
+          throw new Error(
+            label + "データを取得できませんでした。" +
+            "ファイルを直接開いている場合は、ローカルサーバーやGitHub Pagesなど経由で開いてください。"
+          );
+        }
+
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function loadAdventurers() {
+      const data = await fetchJson("./data/adventurers.json", "冒険者");
+
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error("冒険者データが空か、配列形式ではありません。");
+      }
+
+      const ids = new Set();
+
+      data.forEach(function(a) {
+        if (
+          !a.id || !a.name || !a.race ||
+          !a.purpose || !a.dialogue
+        ) {
+          throw new Error(
+            "冒険者に id、name、race、purpose、dialogue が必要です。"
+          );
+        }
+
+        if (ids.has(a.id)) {
+          throw new Error("冒険者IDが重複しています：" + a.id);
+        }
+        ids.add(a.id);
+
+        if (!validRanks.includes(a.rank)) {
+          throw new Error(a.name + "のランクが不正です。");
+        }
+
+        if (!a.abilities || !a.personality) {
+          throw new Error(
+            a.name + "に abilities または personality がありません。"
+          );
+        }
+
+        abilityFields.forEach(function(field) {
+          const value = a.abilities[field.key];
+
+          if (
+            typeof value !== "number" ||
+            !Number.isFinite(value) ||
+            value < 1 ||
+            value > 10 ||
+            !Number.isInteger(value)
+          ) {
+            throw new Error(
+              a.name + "の" + field.label + "は1～10の整数にしてください。"
+            );
+          }
+        });
+
+        if (!validBravery.includes(a.personality.bravery)) {
+          throw new Error(a.name + "の勇敢さの設定が不正です。");
+        }
+
+        if (!validJudgment.includes(a.personality.judgment)) {
+          throw new Error(a.name + "の判断傾向の設定が不正です。");
+        }
+
+        // 料理・酒の好み（各項目の、すべての値に評価点が必要）
+        if (
+          !a.preferences ||
+          !a.preferences.dish ||
+          !a.preferences.drink
+        ) {
+          throw new Error(
+            a.name + "に preferences（dish と drink）がありません。"
+          );
+        }
+
+        PREF_CATEGORY_NAMES.forEach(function(category) {
+          const info = PREF_CATEGORIES[category];
+          const prefs = a.preferences[category];
+
+          Object.keys(info.values).forEach(function(key) {
+            const ratings = prefs[key];
+
+            if (!ratings || typeof ratings !== "object") {
+              throw new Error(
+                a.name + "の" + info.heading + "に「" + info.labels[key] +
+                "」（" + key + "）の評価がありません。"
+              );
+            }
+
+            info.values[key].forEach(function(value) {
+              if (!VALID_RATINGS.includes(ratings[value])) {
+                throw new Error(
+                  a.name + "の" + info.heading + "（" + info.labels[key] +
+                  "「" + value + "」）の評価点が不正です：" + ratings[value] +
+                  "（5、4、3、-1、-2のいずれか）"
+                );
+              }
+            });
+          });
+        });
+      });
+
+      // 現在存在しない冒険者の古いデータは削除
+      Object.keys(knowledge).forEach(function(id) {
+        if (!ids.has(id)) {
+          delete knowledge[id];
+        }
+      });
+
+      adventurers = data;
+
+      // 既存の保存データを残しつつ、不足項目だけ初期化する
+      loadKnowledgeDefaults();
+      saveKnowledge();
+    }
+
+    // 食材・調味料の1件分を、読み込める形に整える
+    // id の前後の空白は取り除き、rarity が文字列でも数字に直す（どちらも警告を出す）
+    function normalizeMaterial(item, where) {
+      if (
+        !item ||
+        typeof item.id !== "string" ||
+        !item.name ||
+        !item.food_text
+      ) {
+        throw new Error(where + "に id、name、food_text が必要です。");
+      }
+
+      const id = item.id.trim();
+
+      if (id === "") {
+        throw new Error(where + "の「" + item.name + "」の id が空です。");
+      }
+
+      if (id !== item.id) {
+        dataWarnings.push(
+          where + "の id「" + item.id +
+          "」の前後に空白があったので、取り除いて読み込みました。"
+        );
+      }
+
+      const rarity = Number(item.rarity);
+
+      if (!Number.isFinite(rarity)) {
+        throw new Error(
+          where + "の「" + item.name + "」の rarity が数字ではありません。"
+        );
+      }
+
+      if (typeof item.rarity === "string") {
+        dataWarnings.push(
+          where + "の「" + item.name + "」の rarity が文字列でした。数字（" +
+          rarity + "）として読み込みました。"
+        );
+      }
+
+      return {
+        id: id,
+        name: item.name,
+        rarity: rarity,
+        food_text: item.food_text,
+        description: item.description || ""
+      };
+    }
+
+    // 食材データを読み込む（data/ingredients/ の4ファイル）
+    async function loadIngredients() {
+      const list = [];
+      const ids = new Set();
+
+      for (const def of INGREDIENT_FILES) {
+        const data = await fetchJson(
+          "./data/ingredients/" + def.file + ".json",
+          "食材（" + def.file + ".json）"
+        );
+
+        if (!Array.isArray(data)) {
+          throw new Error(
+            "食材データ（" + def.file + ".json）が配列形式ではありません。"
+          );
+        }
+
+        data.forEach(function(item) {
+          const material = normalizeMaterial(
+            item,
+            "食材（" + def.file + ".json）"
+          );
+
+          if (ids.has(material.id)) {
+            throw new Error("食材のIDが重複しています：" + material.id);
+          }
+          ids.add(material.id);
+
+          material.main = def.main;
+          list.push(material);
+        });
+      }
+
+      if (list.length === 0) {
+        throw new Error("食材が1つもありません。");
+      }
+
+      ingredients = list;
+    }
+
+    // 調味料データを読み込む（data/seasonings/ の3ファイル）
+    async function loadSeasonings() {
+      const list = [];
+      const ids = new Set();
+
+      for (const def of SEASONING_FILES) {
+        const data = await fetchJson(
+          "./data/seasonings/" + def.file + ".json",
+          "調味料（" + def.file + ".json）"
+        );
+
+        if (!Array.isArray(data)) {
+          throw new Error(
+            "調味料データ（" + def.file + ".json）が配列形式ではありません。"
+          );
+        }
+
+        data.forEach(function(item) {
+          const material = normalizeMaterial(
+            item,
+            "調味料（" + def.file + ".json）"
+          );
+
+          if (ids.has(material.id)) {
+            throw new Error("調味料のIDが重複しています：" + material.id);
+          }
+          ids.add(material.id);
+
+          const dishValue = def.values[item.value];
+
+          if (!dishValue) {
+            throw new Error(
+              "調味料「" + material.name + "」（" + def.file +
+              ".json）の value が不正です：" + item.value +
+              "（" + Object.keys(def.values).join("、") + "のいずれか）"
+            );
+          }
+
+          material.field = def.field;
+          material.fieldLabel = def.label;
+          material.dishValue = dishValue;
+          list.push(material);
+        });
+      }
+
+      if (list.length === 0) {
+        throw new Error("調味料が1つもありません。");
+      }
+
+      seasonings = list;
+    }
+
+    // 食材の選択欄を作る（持っている食材だけ。食材の種類ごとにグループ分け）
+    function renderIngredientSelect() {
+      const select = document.getElementById("ingredientSelect");
+      select.replaceChildren();
+
+      INGREDIENT_FILES.forEach(function(def) {
+        const group = document.createElement("optgroup");
+        group.label = def.main;
+
+        ingredients.forEach(function(item) {
+          if (item.main !== def.main) return;
+          if (!ownedIngredientIds.includes(item.id)) return;
+
+          const option = document.createElement("option");
+          option.value = item.id;
+          option.textContent = item.name + "（レア度" + item.rarity + "）";
+          group.appendChild(option);
+        });
+
+        if (group.children.length > 0) {
+          select.appendChild(group);
+        }
+      });
+
+      if (select.options.length > 0) {
+        select.selectedIndex = 0;
+      }
+    }
+
+    // 調味料の選択欄を作る（持っている調味料だけ。確定させる項目ごとにグループ分け）
+    function renderSeasoningSelect() {
+      const select = document.getElementById("seasoningSelect");
+      select.replaceChildren();
+
+      SEASONING_FILES.forEach(function(def) {
+        const group = document.createElement("optgroup");
+        group.label = def.label;
+
+        seasonings.forEach(function(item) {
+          if (item.field !== def.field) return;
+          if (!ownedSeasoningIds.includes(item.id)) return;
+
+          const option = document.createElement("option");
+          option.value = item.id;
+          option.textContent = item.name + "（レア度" + item.rarity + "）";
+          group.appendChild(option);
+        });
+
+        if (group.children.length > 0) {
+          select.appendChild(group);
+        }
+      });
+
+      if (select.options.length > 0) {
+        select.selectedIndex = 0;
+      }
+    }
+
+    function getSelectedIngredient() {
+      const id = document.getElementById("ingredientSelect").value;
+
+      return ingredients.find(function(item) {
+        return item.id === id;
+      });
+    }
+
+    function getSelectedSeasoning() {
+      const id = document.getElementById("seasoningSelect").value;
+
+      return seasonings.find(function(item) {
+        return item.id === id;
+      });
+    }
+
+    // 選んでいる食材・調味料の説明を表示する
+    function updateCookDetails() {
+      const ingredient = getSelectedIngredient();
+      const seasoning = getSelectedSeasoning();
+
+      document.getElementById("ingredientDetail").textContent = ingredient
+        ? ingredient.name + "\n" + ingredient.description +
+          "\n確定する項目：食材＝" + ingredient.main
+        : "食材を選んでください。";
+
+      document.getElementById("seasoningDetail").textContent = seasoning
+        ? seasoning.name + "\n" + seasoning.description +
+          "\n確定する項目：" + seasoning.fieldLabel + "＝" + seasoning.dishValue
+        : "調味料を選んでください。";
+    }
+
+    // 持っている食材・調味料の数を表示する
+    function updateOwnedMaterialSummary() {
+      document.getElementById("ownedMaterialSummary").textContent =
+        "持っている食材：" + ownedIngredientIds.length + " / " +
+        ingredients.length + "種　調味料：" + ownedSeasoningIds.length +
+        " / " + seasonings.length + "種";
+    }
+
+    // 料理名を作る
+    // 「食材」の「調味料」「調理法」（例：大マグロの濃厚醤油焼き）
+    // food_text の最後の「の」は、つなぎの「の」と重ならないよう取り除く
+    function buildDishName(ingredient, seasoning, cooking) {
+      const ingredientText = ingredient.food_text.replace(/の$/, "");
+      const seasoningText = seasoning.food_text.replace(/の$/, "");
+
+      return ingredientText + "の" + seasoningText + COOKING_NAME_SUFFIX[cooking];
+    }
+
+    // 食材と調味料から、料理を1つ作る
+    // 食材で「食材」、調味料で濃さ・調理法・スタンスのどれか1つが確定し、残りはランダム
+    function generateDish(ingredient, seasoning) {
+      const dish = {
+        main: ingredient.main,
+        richness: null,
+        cooking: null,
+        style: null
+      };
+
+      dish[seasoning.field] = seasoning.dishValue;
+
+      const fixedFields = ["main", seasoning.field];
+
+      ["richness", "cooking", "style"].forEach(function(field) {
+        if (dish[field] === null) {
+          dish[field] = pickRandom(validDishValues[field]);
+        }
+      });
+
+      generatedCounter++;
+
+      dish.id = "generated_" + generatedCounter;
+      dish.name = buildDishName(ingredient, seasoning, dish.cooking);
+      dish.generated = true;
+      dish.ingredientId = ingredient.id;
+      dish.seasoningId = seasoning.id;
+
+      return {
+        dish: dish,
+        fixedFields: fixedFields
+      };
+    }
+
+    // ===== 作った料理の保存 =====
+
+    // 作った料理を保存する（持っているもののうち、generated が付いたものだけ）
+    function saveGeneratedDishes() {
+      try {
+        const list = dishes
+          .filter(function(d) {
+            return d.generated && ownedDishIds.includes(d.id);
+          })
+          .map(function(d) {
+            return {
+              id: d.id,
+              name: d.name,
+              main: d.main,
+              richness: d.richness,
+              cooking: d.cooking,
+              style: d.style,
+              ingredientId: d.ingredientId || "",
+              seasoningId: d.seasoningId || ""
+            };
+          });
+
+        localStorage.setItem(
+          DISH_SAVE_KEY,
+          JSON.stringify({ counter: generatedCounter, dishes: list })
+        );
+      } catch (error) {
+        console.error("作った料理の保存に失敗しました", error);
+      }
+    }
+
+    // 保存してある、作った料理を読み込んで、手持ちに加える
+    function loadGeneratedDishes() {
+      let saved = null;
+
+      try {
+        const raw = localStorage.getItem(DISH_SAVE_KEY);
+        if (raw) {
+          saved = JSON.parse(raw);
+        }
+      } catch (error) {
+        console.error("作った料理の読み込みに失敗しました", error);
+        return;
+      }
+
+      if (!saved || !Array.isArray(saved.dishes)) {
+        return;
+      }
+
+      let maxCounter = Number.isInteger(saved.counter) ? saved.counter : 0;
+      let skipped = 0;
+
+      saved.dishes.forEach(function(d) {
+        const valid =
+          d &&
+          typeof d.id === "string" &&
+          typeof d.name === "string" &&
+          Object.keys(validDishValues).every(function(key) {
+            return validDishValues[key].includes(d[key]);
+          });
+
+        if (!valid) {
+          skipped++;
+          return;
+        }
+
+        if (dishes.some(function(x) { return x.id === d.id; })) {
+          return;
+        }
+
+        dishes.push({
+          id: d.id,
+          name: d.name,
+          main: d.main,
+          richness: d.richness,
+          cooking: d.cooking,
+          style: d.style,
+          generated: true,
+          ingredientId: d.ingredientId || "",
+          seasoningId: d.seasoningId || ""
+        });
+        ownedDishIds.push(d.id);
+
+        const match = /^generated_(\d+)$/.exec(d.id);
+        if (match) {
+          maxCounter = Math.max(maxCounter, Number(match[1]));
+        }
+      });
+
+      generatedCounter = maxCounter;
+
+      if (skipped > 0) {
+        dataWarnings.push(
+          "保存してあった、作った料理のうち " + skipped +
+          " 品は、今のデータの値と合わなかったため、読み込みませんでした。"
+        );
+      }
+
+      renderDishSelect();
+    }
+
+    // 作った料理を、手持ちに加えて保存する。営業準備の選択欄にも追加し、選んだ状態にする
+    function addGeneratedDish(dish) {
+      dishes.push(dish);
+      ownedDishIds.push(dish.id);
+      saveGeneratedDishes();
+
+      renderDishSelect();
+      document.getElementById("dishSelect").value = dish.id;
+      updateMenuPreview();
+      renderOwnedDishList();
+    }
+
+    // 2つの料理の、4つの項目がすべて同じか
+    function dishValuesEqual(a, b) {
+      return Object.keys(dishFieldLabels).every(function(field) {
+        return a[field] === b[field];
+      });
+    }
+
+    // すでに持っている「作った料理」から、同じ名前のものを探す
+    function findOwnedGeneratedDishByName(name) {
+      return getOwnedDishes().find(function(d) {
+        return d.generated && d.name === name;
+      });
+    }
+
+    // 仕込みの画面に、赤字でメッセージを出す
+    function showCookMessage(message) {
+      const el = document.getElementById("cookMessage");
+      el.textContent = message;
+      el.hidden = false;
+    }
+
+    function clearCookMessage() {
+      const el = document.getElementById("cookMessage");
+      el.textContent = "";
+      el.hidden = true;
+    }
+
+    // 仕込みの画面の「手持ちの料理」の一覧を更新する
+    // 食材の種類（肉・魚・穀物・野菜）ごとに、見出しをつけて並べる
+    function renderOwnedDishList() {
+      const el = document.getElementById("ownedDishList");
+      const owned = getOwnedDishes();
+
+      if (owned.length === 0) {
+        el.textContent = "（まだ料理がありません）";
+        return;
+      }
+
+      el.textContent = groupDishesByMain(owned).map(function(group) {
+        return "【" + group.label + "】\n" +
+          group.items.map(function(d) { return "・" + d.name; }).join("\n");
+      }).join("\n\n");
+    }
+
+    // 「料理を作る」「仕込みを終える」ボタンの、押せる／押せないを切り替える
+    // 料理を作れるのは1回だけ。同じ名前の料理の選択中は、仕込みも終えられない
+    function updateCookingControls() {
+      document.getElementById("cookButton").disabled =
+        cookedThisVisit || pendingDish !== null;
+
+      document.getElementById("finishCookingButton").disabled =
+        pendingDish !== null;
+
+      document.getElementById("cookNote").textContent = cookedThisVisit
+        ? "今日の仕込みは済みました。「仕込みを終える」を押して、営業準備に進んでください。"
+        : "仕込みで料理を作れるのは、1日に1回です。";
+    }
+
+    // 作った料理の結果を表示する
+    function showCookResult(dish, fixedFields, headline) {
+      const lines = [headline];
+
+      Object.keys(dishFieldLabels).forEach(function(field) {
+        lines.push(
+          dishFieldLabels[field] + "：" + dish[field] +
+          (fixedFields.includes(field) ? "（確定）" : "（ランダム）")
+        );
+      });
+
+      const resultBox = document.getElementById("cookResult");
+      resultBox.textContent = lines.join("\n");
+      resultBox.hidden = false;
+    }
+
+    // 同じ名前の料理の選択を、閉じる
+    function hideDishChoice() {
+      pendingDish = null;
+      document.getElementById("dishChoiceBox").hidden = true;
+      updateCookingControls();
+    }
+
+    // 同じ名前で中身が違う料理ができたとき、前の料理と今回の料理を並べて、選んでもらう
+    function startDishChoice(existing, result) {
+      pendingDish = {
+        existing: existing,
+        newDish: result.dish,
+        fixedFields: result.fixedFields
+      };
+
+      document.getElementById("dishChoiceName").textContent =
+        "「" + result.dish.name +
+        "」が、すでにあります。違いを見て、残すほうを選んでください。";
+
+      const table = document.getElementById("dishCompareTable");
+      table.replaceChildren();
+
+      const head = document.createElement("tr");
+      ["項目", "前に作った料理", "今回できた料理"].forEach(function(text) {
+        const th = document.createElement("th");
+        th.textContent = text;
+        head.appendChild(th);
+      });
+      table.appendChild(head);
+
+      Object.keys(dishFieldLabels).forEach(function(field) {
+        const row = document.createElement("tr");
+
+        if (existing[field] !== result.dish[field]) {
+          row.className = "diff";
+        }
+
+        const label = document.createElement("th");
+        label.textContent = dishFieldLabels[field];
+        row.appendChild(label);
+
+        const oldCell = document.createElement("td");
+        oldCell.textContent = existing[field];
+        row.appendChild(oldCell);
+
+        const newCell = document.createElement("td");
+        newCell.textContent = result.dish[field];
+        row.appendChild(newCell);
+
+        table.appendChild(row);
+      });
+
+      document.getElementById("cookResult").hidden = true;
+      document.getElementById("dishChoiceBox").hidden = false;
+      updateCookingControls();
+    }
+
+    // 「前の料理を残す」「今回の料理に入れ替える」ボタンの処理
+    // keepNew が true なら、前の料理を手放して、今回の料理に入れ替える
+    function resolveDishChoice(keepNew) {
+      if (!pendingDish) return;
+
+      const existing = pendingDish.existing;
+      const newDish = pendingDish.newDish;
+      const fixedFields = pendingDish.fixedFields;
+
+      hideDishChoice();
+
+      if (keepNew) {
+        dishes = dishes.filter(function(d) { return d.id !== existing.id; });
+        ownedDishIds = ownedDishIds.filter(function(id) {
+          return id !== existing.id;
+        });
+
+        addGeneratedDish(newDish);
+
+        showCookResult(
+          newDish,
+          fixedFields,
+          "「" + newDish.name + "」を、今回できた料理に入れ替えた。"
+        );
+        addLog(
+          day + "日目：同じ名前の料理「" + newDish.name +
+          "」を、今回できた料理に入れ替えた。"
+        );
+      } else {
+        saveGeneratedDishes();
+
+        showCookResult(
+          existing,
+          [],
+          "前に作った「" + existing.name + "」を残した。（今回の料理は持たなかった）"
+        );
+        addLog(
+          day + "日目：同じ名前の料理「" + existing.name +
+          "」は、前に作ったほうを残した。"
+        );
+      }
+
+      renderOwnedDishList();
+    }
+
+    // 仕込みの画面を開いたときの準備
+    // （持っている食材・調味料の選択欄を作り直し、「今日はまだ料理を作っていない」状態にする）
+    function updateCookingScreen() {
+      cookedThisVisit = false;
+      hideDishChoice();
+      document.getElementById("cookResult").hidden = true;
+      clearCookMessage();
+      renderIngredientSelect();
+      renderSeasoningSelect();
+      updateOwnedMaterialSummary();
+      renderOwnedDishList();
+      updateCookDetails();
+    }
+
+    // 「この組み合わせで料理を作る」ボタンの処理（仕込みで作れるのは1回だけ）
+    function cookDish() {
+      if (phase !== "cooking") return;
+
+      if (cookedThisVisit) {
+        showCookMessage("仕込みで料理を作れるのは、1日に1回です。");
+        return;
+      }
+
+      if (pendingDish) {
+        showCookMessage(
+          "先に、前の料理と今回の料理のどちらを残すか選んでください。"
+        );
+        return;
+      }
+
+      const ingredient = getSelectedIngredient();
+      const seasoning = getSelectedSeasoning();
+
+      if (!ingredient || !seasoning) {
+        showCookMessage("食材と調味料を選んでください。");
+        return;
+      }
+
+      clearCookMessage();
+
+      const result = generateDish(ingredient, seasoning);
+      const dish = result.dish;
+      const existing = findOwnedGeneratedDishByName(dish.name);
+
+      // ここで、今日の仕込みの1回を使ったことにする
+      cookedThisVisit = true;
+
+      // 名前も中身も全く同じ料理：増やさない
+      if (existing && dishValuesEqual(existing, dish)) {
+        saveGeneratedDishes();
+
+        showCookResult(
+          dish,
+          result.fixedFields,
+          "「" + dish.name +
+          "」ができたが、すでに持っている料理と全く同じだったので、増えなかった。"
+        );
+        addLog(
+          day + "日目：" + ingredient.name + "と" + seasoning.name +
+          "で、すでに持っている「" + dish.name + "」と同じ料理ができた。（増えなかった）"
+        );
+        updateCookingControls();
+        return;
+      }
+
+      // 名前は同じで、中身が違う料理：どちらを残すか選んでもらう
+      if (existing) {
+        addLog(
+          day + "日目：" + ingredient.name + "と" + seasoning.name +
+          "で、同じ名前の料理「" + dish.name +
+          "」ができた。どちらを残すか選んでください。"
+        );
+        startDishChoice(existing, result);
+        return;
+      }
+
+      // 新しい名前の料理：そのまま手持ちに加える
+      addGeneratedDish(dish);
+
+      showCookResult(
+        dish,
+        result.fixedFields,
+        "「" + dish.name + "」ができた。"
+      );
+
+      addLog(
+        day + "日目：" + ingredient.name + "と" + seasoning.name +
+        "で、料理「" + dish.name + "」を作った。"
+      );
+
+      updateCookingControls();
+    }
+
+    // 「仕込みを終える」ボタンの処理（営業準備へ進む）
+    function finishCooking() {
+      if (phase !== "cooking") return;
+      if (pendingDish) return;
+
+      addLog(day + "日目：仕込みを終えた。");
+
+      phase = "preparation";
+      updateMenuPreview();
+      updatePreparationState();
+      updateStatus();
+    }
+
+    // 料理データを読み込む（data/dishes.json は、なくても動く）
+    async function loadDishes() {
+      let data = [];
+
+      try {
+        data = await fetchJson("./data/dishes.json", "料理");
+      } catch (error) {
+        if (error.httpStatus === 404) {
+          data = [];
+        } else {
+          throw error;
+        }
+      }
+
+      if (!Array.isArray(data)) {
+        throw new Error("料理データが配列形式ではありません。");
+      }
+
+      const ids = new Set();
+
+      data.forEach(function(d) {
+        if (
+          !d.id || !d.name || !d.main ||
+          !d.richness || !d.cooking || !d.style
+        ) {
+          throw new Error(
+            "料理に id、name、main、richness、cooking、style が必要です。"
+          );
+        }
+
+        if (ids.has(d.id)) {
+          throw new Error("料理IDが重複しています：" + d.id);
+        }
+        ids.add(d.id);
+
+        // 好みと照合できない値は、エラーにせず警告だけ出す（評価は「普通」として扱う）
+        Object.keys(validDishValues).forEach(function(key) {
+          if (!validDishValues[key].includes(d[key])) {
+            dataWarnings.push(
+              "料理「" + d.name + "」の" + dishFieldLabels[key] +
+              "「" + d[key] + "」は、冒険者の好みと一致しない値です（" +
+              validDishValues[key].join("、") + "のいずれかにすると照合されます）。"
+            );
+          }
+        });
+      });
+
+      dishes = data;
+
+      // 手持ちの料理を決める（存在しないIDは無視）
+      if (INITIAL_OWNED_DISH_IDS.length === 0) {
+        ownedDishIds = dishes.map(function(d) { return d.id; });
+      } else {
+        ownedDishIds = INITIAL_OWNED_DISH_IDS.filter(function(id) {
+          return ids.has(id);
+        });
+      }
+
+      renderDishSelect();
+    }
+
+    // 料理を並べるための目安（小さいほど先に並ぶ）を、4つ返す
+    //   1. 食材の種類（肉・魚・穀物・野菜の順）
+    //   2. メイン食材（食材データに書いた順。作った料理だけ。ほかは最後）
+    //   3. 味付け（調味料データの順。作った料理だけ。ほかは最後）
+    //   4. 調理法（焼き物・汁物・煮込み・生の順）
+    function getDishSortKey(dish) {
+      const mainIndex = validDishValues.main.indexOf(dish.main);
+
+      const ingredientIndex = ingredients.findIndex(function(item) {
+        return item.id === dish.ingredientId;
+      });
+
+      const seasoningIndex = seasonings.findIndex(function(item) {
+        return item.id === dish.seasoningId;
+      });
+
+      const cookingIndex = validDishValues.cooking.indexOf(dish.cooking);
+
+      return [
+        mainIndex === -1 ? 99 : mainIndex,
+        ingredientIndex === -1 ? 9999 : ingredientIndex,
+        seasoningIndex === -1 ? 9999 : seasoningIndex,
+        cookingIndex === -1 ? 99 : cookingIndex
+      ];
+    }
+
+    // 料理の並べ替え用の比較（目安が同じなら、名前の順）
+    function compareDishes(a, b) {
+      const keyA = getDishSortKey(a);
+      const keyB = getDishSortKey(b);
+
+      for (let i = 0; i < keyA.length; i++) {
+        if (keyA[i] !== keyB[i]) {
+          return keyA[i] - keyB[i];
+        }
+      }
+
+      return a.name.localeCompare(b.name, "ja");
+    }
+
+    // 料理の一覧を、食材の種類（肉・魚・穀物・野菜）ごとに分ける
+    // 一覧にない種類の料理は、「その他」にまとめる
+    function groupDishesByMain(list) {
+      const groups = [];
+
+      validDishValues.main.forEach(function(main) {
+        const items = list.filter(function(d) { return d.main === main; });
+
+        if (items.length > 0) {
+          groups.push({ label: main, items: items });
+        }
+      });
+
+      const others = list.filter(function(d) {
+        return !validDishValues.main.includes(d.main);
+      });
+
+      if (others.length > 0) {
+        groups.push({ label: "その他", items: others });
+      }
+
+      return groups;
+    }
+
+    // 手持ちの料理を、並べ替えて返す（食材の種類 → メイン食材 → 味付け → 調理法の順）
+    function getOwnedDishes() {
+      return dishes
+        .filter(function(d) {
+          return ownedDishIds.includes(d.id);
+        })
+        .sort(compareDishes);
+    }
+
+    // 手持ちの料理を選択欄に反映する（食材の種類ごとにグループ分け）
+    function renderDishSelect() {
+      const select = document.getElementById("dishSelect");
+      select.replaceChildren();
+
+      groupDishesByMain(getOwnedDishes()).forEach(function(groupInfo) {
+        const group = document.createElement("optgroup");
+        group.label = groupInfo.label;
+
+        groupInfo.items.forEach(function(d) {
+          const option = document.createElement("option");
+          option.value = d.id;
+          option.textContent = d.name;
+          group.appendChild(option);
+        });
+
+        select.appendChild(group);
+      });
+
+      // 先頭の料理を選んだ状態にしておく
+      if (select.options.length > 0) {
+        select.selectedIndex = 0;
+      }
+    }
+
+    // 選択中の料理を返す。選ばれていなければ先頭の手持ち料理を返す
+    function getSelectedDish() {
+      const owned = getOwnedDishes();
+      const id = document.getElementById("dishSelect").value;
+
+      const found = owned.find(function(d) {
+        return d.id === id;
+      });
+
+      return found || owned[0];
+    }
+
+    function dishToText(dish) {
+      return dish.name + "\n" +
+        "食材：" + dish.main + "\n" +
+        "濃さ：" + dish.richness + "\n" +
+        "調理法：" + dish.cooking + "\n" +
+        "スタンス：" + dish.style;
+    }
+
+    // 飲み物データを読み込む
+    async function loadDrinks() {
+      const data = await fetchJson("./data/drinks.json", "飲み物");
+
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error("飲み物データが空か、配列形式ではありません。");
+      }
+
+      const ids = new Set();
+
+      data.forEach(function(d) {
+        if (
+          !d.id || !d.name || !d.type ||
+          !d.alcohol || !d.smell || !d.mouthfeel
+        ) {
+          throw new Error(
+            "飲み物に id、name、type、alcohol、smell、mouthfeel が必要です。"
+          );
+        }
+
+        if (ids.has(d.id)) {
+          throw new Error("飲み物IDが重複しています：" + d.id);
+        }
+        ids.add(d.id);
+
+        Object.keys(validDrinkValues).forEach(function(key) {
+          if (!validDrinkValues[key].includes(d[key])) {
+            throw new Error(
+              d.name + "の " + key + " が不正です：" + d[key] +
+              "（" + validDrinkValues[key].join("、") + "のいずれか）"
+            );
+          }
+        });
+      });
+
+      drinks = data;
+
+      // 手持ちの飲み物を決める（存在しないIDは無視）
+      if (INITIAL_OWNED_DRINK_IDS.length === 0) {
+        ownedDrinkIds = drinks.map(function(d) { return d.id; });
+      } else {
+        ownedDrinkIds = INITIAL_OWNED_DRINK_IDS.filter(function(id) {
+          return ids.has(id);
+        });
+      }
+
+      if (ownedDrinkIds.length === 0) {
+        throw new Error("手持ちの飲み物が1つもありません。");
+      }
+
+      renderDrinkSelect();
+    }
+
+    function getOwnedDrinks() {
+      return drinks.filter(function(d) {
+        return ownedDrinkIds.includes(d.id);
+      });
+    }
+
+    // 手持ちの飲み物を選択欄に反映する
+    function renderDrinkSelect() {
+      const select = document.getElementById("drinkSelect");
+      select.replaceChildren();
+
+      getOwnedDrinks().forEach(function(d) {
+        const option = document.createElement("option");
+        option.value = d.id;
+        option.textContent = d.name;
+        select.appendChild(option);
+      });
+
+      // 先頭の飲み物を選んだ状態にしておく
+      if (select.options.length > 0) {
+        select.selectedIndex = 0;
+      }
+    }
+
+    // 選択中の飲み物を返す。選ばれていなければ先頭の手持ち飲み物を返す
+    function getSelectedDrink() {
+      const owned = getOwnedDrinks();
+      const id = document.getElementById("drinkSelect").value;
+
+      const found = owned.find(function(d) {
+        return d.id === id;
+      });
+
+      return found || owned[0];
+    }
+
+    function drinkToText(drink) {
+      return drink.name + "\n" +
+        "種類：" + drink.type + "系\n" +
+        "アルコール度数：" + drink.alcohol + "\n" +
+        "香り：" + drink.smell + "\n" +
+        "口当たり：" + drink.mouthfeel;
+    }
+
+    // 冒険者が、ある項目のある値につけている評価点を返す
+    // （料理データの値が一覧にない場合は、「普通」の3点として扱う）
+    function getRating(adventurer, category, key, value) {
+      const rating = adventurer.preferences[category][key][value];
+      return typeof rating === "number" ? rating : 3;
+    }
+
+    // 料理（または酒）の、各項目の評価点の平均を返す
+    function averageRating(adventurer, category, item) {
+      const keys = Object.keys(PREF_CATEGORIES[category].values);
+      let sum = 0;
+
+      keys.forEach(function(key) {
+        sum += getRating(adventurer, category, key, item[key]);
+      });
+
+      return sum / keys.length;
+    }
+
+    // メニューと冒険者の好みの相性を調べる
+    // 料理と酒を別々に判定する
+    //   平均が ORDER_AVERAGE 以上 → 注文する
+    //   平均が FAVORITE_AVERAGE 以上 → 好物
+    // どちらかでも注文すれば会話できる
+    // advances：会話で進む情報の段階（注文した料理・酒1つにつき1項目ぶん）
+    function evaluateMenu(adventurer, menu) {
+      const dishAverage = averageRating(adventurer, "dish", menu.dish);
+      const drinkAverage = averageRating(adventurer, "drink", menu.drink);
+
+      const dishOrdered = dishAverage >= ORDER_AVERAGE;
+      const drinkOrdered = drinkAverage >= ORDER_AVERAGE;
+      const dishFavorite = dishAverage >= FAVORITE_AVERAGE;
+      const drinkFavorite = drinkAverage >= FAVORITE_AVERAGE;
+
+      const advances = [];
+
+      if (dishOrdered) {
+        advances.push(
+          dishFavorite ? STAGE_ADVANCE_FAVORITE : STAGE_ADVANCE_NORMAL
+        );
+      }
+
+      if (drinkOrdered) {
+        advances.push(
+          drinkFavorite ? STAGE_ADVANCE_FAVORITE : STAGE_ADVANCE_NORMAL
+        );
+      }
+
+      const ordered = dishOrdered || drinkOrdered;
+
+      return {
+        dishAverage: dishAverage,
+        drinkAverage: drinkAverage,
+        dishOrdered: dishOrdered,
+        drinkOrdered: drinkOrdered,
+        dishFavorite: dishFavorite,
+        drinkFavorite: drinkFavorite,
+        advances: advances,
+        ordered: ordered,
+        canTalk: ordered
+      };
+    }
+
+    // 料理（または酒）の状態を、言葉で返す（記録のテスト表示用）
+    function getItemStateLabel(ordered, favorite) {
+      if (!ordered) return "注文せず";
+      return favorite ? "好物" : "注文";
+    }
+
+    // 来店時の反応の文（冒険者の名前のあとに続く）
+    function buildReactionLine(evaluation) {
+      if (!evaluation.ordered) {
+        return "は料理も酒も口に合わなかったようだ。注文はせず、そっぽを向いている。";
+      }
+
+      let dishText = "料理が口に合わなかったようだ";
+      if (evaluation.dishOrdered) {
+        dishText = evaluation.dishFavorite
+          ? "料理が大のお気に入りの様子だ"
+          : "料理を注文した";
+      }
+
+      let drinkText = "酒は口に合わなかったようだ";
+      if (evaluation.drinkOrdered) {
+        drinkText = evaluation.drinkFavorite
+          ? "酒が大のお気に入りの様子だ"
+          : "酒を注文した";
+      }
+
+      const anyFavorite = evaluation.dishFavorite || evaluation.drinkFavorite;
+
+      return "は" + dishText + "。" + drinkText + "。" +
+        (anyFavorite
+          ? "上機嫌で、いろいろ話してくれそうだ。"
+          : "話しかけられそうだ。");
+    }
+
+    // 今回の料理（または酒）で、まだ評価が分からない項目を返す
+    function getRevealablePrefKeys(adventurer, category, item) {
+      const info = PREF_CATEGORIES[category];
+
+      return Object.keys(info.values).filter(function(key) {
+        const served = item[key];
+
+        // 料理データの値が一覧にない場合は調べられない
+        if (!info.values[key].includes(served)) return false;
+
+        return knowledge[adventurer.id][info.storeKey][key][served] === null;
+      });
+    }
+
+    // 酒の度数について、出した酒が「強すぎる(over)」か「物足りない(under)」かを返す
+    // 冒険者が最も高く評価している値を基準にする（基準と同じ値なら null）
+    function getDrinkDirection(adventurer, key, served) {
+      const order = DRINK_ORDER[key];
+      const ratings = adventurer.preferences.drink[key];
+
+      let bestIndex = 0;
+      let bestRating = -Infinity;
+
+      order.forEach(function(value, i) {
+        if (ratings[value] > bestRating) {
+          bestRating = ratings[value];
+          bestIndex = i;
+        }
+      });
+
+      const servedIndex = order.indexOf(served);
+
+      if (servedIndex === bestIndex) {
+        return null;
+      }
+
+      return servedIndex > bestIndex ? "over" : "under";
+    }
+
+    // セリフを作る
+    function buildHintText(adventurer, category, key, served, rating, ordered) {
+      const tier = RATING_TIERS[String(rating)];
+      const mode = ordered ? "ate" : "skip";
+      const eat = category === "dish" ? "食べる" : "飲む";
+
+      let templates = null;
+
+      // 酒の度数が嫌い／大嫌いのときは、強すぎる／物足りないを言い分ける
+      if (
+        category === "drink" &&
+        key === "alcohol" &&
+        (tier === "dislike" || tier === "hate")
+      ) {
+        const direction = getDrinkDirection(adventurer, key, served);
+
+        if (direction !== null) {
+          templates = DRINK_DIRECTION_TEXTS[key][direction][mode][tier];
+        }
+      }
+
+      if (templates === null) {
+        templates = HINT_TEXTS[mode][tier];
+      }
+
+      const subject = HINT_SUBJECTS[category][key] || served;
+
+      return pickRandom(templates)
+        .split("{s}").join(subject)
+        .split("{eat}").join(eat);
+    }
+
+    // 好みを1項目だけ判明させる。料理か酒のどちらかから選ぶ。判明できる項目がなければ null
+    // evaluation：その料理・酒を注文したかどうかの判定結果
+    function discoverPreference(adventurer, menu, evaluation) {
+      const items = { dish: menu.dish, drink: menu.drink };
+      const orderedFlags = {
+        dish: evaluation.dishOrdered,
+        drink: evaluation.drinkOrdered
+      };
+
+      // 判明できる項目が残っている側（料理・酒）だけを候補にする
+      const candidates = PREF_CATEGORY_NAMES.filter(function(category) {
+        return getRevealablePrefKeys(
+          adventurer, category, items[category]
+        ).length > 0;
+      });
+
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      const category = pickRandom(candidates);
+      const info = PREF_CATEGORIES[category];
+      const keys = getRevealablePrefKeys(adventurer, category, items[category]);
+      const key = pickRandom(keys);
+
+      const served = items[category][key];
+      const rating = adventurer.preferences[category][key][served];
+      const label = info.prefix + info.labels[key];
+
+      knowledge[adventurer.id][info.storeKey][key][served] = rating;
+      saveKnowledge();
+
+      return {
+        category: category,
+        key: key,
+        text: buildHintText(
+          adventurer, category, key, served, rating, orderedFlags[category]
+        ),
+        summary: label + "「" + served + "」は" +
+          getRatingLabel(rating) + "（" + rating + "）だと分かった。"
+      };
+    }
+
+    // 評価点に応じた、表のセルの色分け用のクラス名を返す（未判明は unknown）
+    function getRatingClass(rating) {
+      if (rating === null) return "rating-unknown";
+      return rating < 0 ? "rating-m" + (-rating) : "rating-" + rating;
+    }
+
+    // 好みの表を作る（1行が1項目、セルに「値の名前」と「評価点」を出す）
+    // 例：食材 ｜ 肉 5 ｜ 魚 4 ｜ 穀物 ？ ｜ 野菜 ？
+    function createPrefTable(adventurer, category) {
+      const info = PREF_CATEGORIES[category];
+      const keys = Object.keys(info.values);
+
+      const table = document.createElement("table");
+      table.className = "pref-table";
+
+      // 一番多い値の数（足りない行は空のセルでそろえる）
+      let maxColumns = 0;
+      keys.forEach(function(key) {
+        maxColumns = Math.max(maxColumns, info.values[key].length);
+      });
+
+      keys.forEach(function(key) {
+        const row = document.createElement("tr");
+
+        const th = document.createElement("th");
+        th.textContent = info.tableLabels[key];
+        row.appendChild(th);
+
+        const entry = knowledge[adventurer.id][info.storeKey][key];
+
+        info.values[key].forEach(function(value) {
+          const rating = entry[value];
+
+          const td = document.createElement("td");
+          td.className = getRatingClass(rating);
+
+          const name = document.createElement("span");
+          name.className = "pref-name";
+          name.textContent = value;
+
+          const score = document.createElement("span");
+          score.className = "pref-score";
+          score.textContent = rating === null ? "？" : String(rating);
+
+          td.appendChild(name);
+          td.appendChild(score);
+          row.appendChild(td);
+        });
+
+        for (let i = info.values[key].length; i < maxColumns; i++) {
+          const empty = document.createElement("td");
+          empty.className = "pref-empty";
+          row.appendChild(empty);
+        }
+
+        table.appendChild(row);
+      });
+
+      return table;
+    }
+
+    // 評価点の見方（凡例）の文を作る
+    function createRatingLegend() {
+      const legend = document.createElement("p");
+      legend.className = "pref-legend";
+
+      const parts = VALID_RATINGS.map(function(rating) {
+        return rating + "：" + getRatingLabel(rating);
+      });
+      parts.push("？：未判明");
+
+      legend.textContent = "評価点　" + parts.join("　");
+      return legend;
+    }
+
+    function getFieldValue(adventurer, field) {
+      if (field.key in adventurer.abilities) {
+        return adventurer.abilities[field.key];
+      }
+      return adventurer.personality[field.key];
+    }
+
+    function getAbilityRange(value, stage) {
+      if (stage >= 3) {
+        return String(value);
+      }
+
+      const width = stage === 1 ? 4 : 3;
+      const minStart = Math.max(1, value - width + 1);
+      const maxStart = Math.min(value, 11 - width);
+
+      const lower = Math.floor(
+        Math.random() * (maxStart - minStart + 1)
+      ) + minStart;
+
+      return lower + "〜" + (lower + width - 1);
+    }
+
+    function getPersonalityHint(value, field, stage) {
+      const isBravery = field.key === "bravery";
+
+      if (stage >= 3) {
+        return field.values[value] + "（確定）";
+      }
+
+      if (isBravery) {
+        if (value === "brave") {
+          return stage === 1 ? "勇敢〜普通の傾向" : "勇敢寄り";
+        }
+        if (value === "cautious") {
+          return stage === 1 ? "普通〜慎重の傾向" : "慎重寄り";
+        }
+        return stage === 1 ? "勇敢さは中間的な傾向" : "普通寄り";
+      }
+
+      if (value === "intuition") {
+        return stage === 1 ? "直感〜普通の傾向" : "直感寄り";
+      }
+      if (value === "deliberation") {
+        return stage === 1 ? "普通〜熟考の傾向" : "熟考寄り";
+      }
+      return stage === 1 ? "判断傾向は中間的" : "普通寄り";
+    }
+
+    function getFieldDisplay(adventurer, field) {
+      const stage = knowledge[adventurer.id][field.key];
+
+      if (stage === 0) {
+        return "不明";
+      }
+
+      const value = getFieldValue(adventurer, field);
+
+      if (field.key in adventurer.abilities) {
+        return getAbilityRange(value, stage);
+      }
+
+      return getPersonalityHint(value, field, stage);
+    }
+
+    function renderAdventurerInfo(adventurer, container) {
+      container.replaceChildren();
+
+      const rank = document.createElement("p");
+      rank.textContent = "ランク：" + adventurer.rank;
+      container.appendChild(rank);
+
+      const abilityHeading = document.createElement("p");
+      abilityHeading.textContent = "能力";
+      abilityHeading.style.fontWeight = "bold";
+      container.appendChild(abilityHeading);
+
+      abilityFields.forEach(function(field) {
+        const line = document.createElement("p");
+        line.textContent =
+          field.label + "：" + getFieldDisplay(adventurer, field);
+        container.appendChild(line);
+      });
+
+      const personalityHeading = document.createElement("p");
+      personalityHeading.textContent = "性格";
+      personalityHeading.style.fontWeight = "bold";
+      container.appendChild(personalityHeading);
+
+      personalityFields.forEach(function(field) {
+        const line = document.createElement("p");
+        line.textContent =
+          field.label + "：" + getFieldDisplay(adventurer, field);
+        container.appendChild(line);
+      });
+
+      // 料理の好み・酒の好み（表で表示）
+      PREF_CATEGORY_NAMES.forEach(function(category) {
+        const info = PREF_CATEGORIES[category];
+
+        const heading = document.createElement("p");
+        heading.textContent = info.heading;
+        heading.style.fontWeight = "bold";
+        container.appendChild(heading);
+
+        container.appendChild(createPrefTable(adventurer, category));
+      });
+
+      container.appendChild(createRatingLegend());
+    }
+
+    function renderAdventurers() {
+      const list = document.getElementById("adventurerList");
+      list.replaceChildren();
+
+      adventurers.forEach(function(adventurer, index) {
+        const card = document.createElement("div");
+        card.className = "adventurer";
+        card.id = "adventurerCard" + index;
+        card.hidden = true;
+
+        const progress = document.createElement("p");
+        progress.className = "progress";
+        progress.textContent =
+          "冒険者 " + (index + 1) + " / " + adventurers.length;
+
+        const heading = document.createElement("h3");
+        heading.textContent = adventurer.name;
+
+        const race = document.createElement("p");
+        race.textContent = "種族：" + adventurer.race;
+
+        const infoHeading = document.createElement("h4");
+        infoHeading.textContent = "冒険者の情報";
+
+        const info = document.createElement("div");
+        info.className = "info-box";
+        info.id = "info" + index;
+        renderAdventurerInfo(adventurer, info);
+
+        // 料理と酒への反応（来店時に表示）
+        const reaction = document.createElement("div");
+        reaction.id = "reaction" + index;
+        reaction.className = "dialogue";
+        reaction.hidden = true;
+
+        const button = document.createElement("button");
+        button.id = "talkButton" + index;
+        button.textContent = "話しかける";
+        button.hidden = true;
+        button.addEventListener("click", function() {
+          talkTo(index);
+        });
+
+        const dialogue = document.createElement("div");
+        dialogue.id = "dialogue" + index;
+        dialogue.className = "dialogue";
+        dialogue.hidden = true;
+
+        const nextButton = document.createElement("button");
+        nextButton.id = "nextButton" + index;
+        nextButton.textContent = "次の冒険者へ";
+        nextButton.hidden = true;
+        nextButton.addEventListener("click", function() {
+          nextAdventurer(index);
+        });
+
+        card.appendChild(progress);
+        card.appendChild(heading);
+        card.appendChild(race);
+        card.appendChild(infoHeading);
+        card.appendChild(info);
+        card.appendChild(reaction);
+        card.appendChild(button);
+        card.appendChild(dialogue);
+        card.appendChild(nextButton);
+        list.appendChild(card);
+      });
+
+      updateHandledCount();
+
+      document.getElementById("allTalkedMessage").textContent =
+        "今日の冒険者" + adventurers.length +
+        "人への対応が終わりました。営業を終了できます。";
+    }
+
+    function updateHandledCount() {
+      document.getElementById("talkCount").textContent =
+        "対応済み：" + handledCount + " / " + adventurers.length + "人";
+    }
+
+    // 今日選べる朝の行動の一覧を返す
+    function getMorningActions() {
+      let list = MORNING_ACTIONS.slice();
+
+      if (day % 2 === 0) {
+        list = list.concat(EVEN_DAY_MORNING_ACTIONS);
+      }
+
+      return list;
+    }
+
+    // 朝の行動のボタンを作り直す
+    function renderMorningActions() {
+      const container = document.getElementById("morningActions");
+      container.replaceChildren();
+
+      getMorningActions().forEach(function(action) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = action.label;
+        button.addEventListener("click", function() {
+          morning(action);
+        });
+        container.appendChild(button);
+      });
+    }
+
+    // 市場の画面を開いたときの準備（選択肢を出し、結果の表示は隠す）
+    function resetMarketScreen() {
+      renderMarketOptions();
+
+      document.getElementById("marketPrompt").hidden = false;
+      document.getElementById("marketOptions").hidden = false;
+      document.getElementById("marketResult").hidden = true;
+      document.getElementById("finishMarketButton").hidden = true;
+    }
+
+    // 市場で選べる行動のボタンを作る（説明つき）
+    function renderMarketOptions() {
+      const container = document.getElementById("marketOptions");
+      container.replaceChildren();
+
+      MARKET_OPTIONS.forEach(function(option) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "market-option";
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = option.label;
+        button.addEventListener("click", function() {
+          chooseMarketOption(option);
+        });
+
+        const description = document.createElement("p");
+        description.textContent = option.description;
+
+        wrapper.appendChild(button);
+        wrapper.appendChild(description);
+        container.appendChild(wrapper);
+      });
+    }
+
+    // 市場で行動を選んだときの処理
+    // 「買い物をする」は、食材か調味料を1つ入手する。
+    // それ以外は、今は選択肢を出すだけで、効果は未実装
+    function chooseMarketOption(option) {
+      if (phase !== "market") return;
+
+      let message = "";
+
+      if (option.id === "shopping") {
+        const bought = buyRandomMaterial();
+
+        if (bought) {
+          message =
+            "市場で買い物をして、" + bought.kindLabel + "「" +
+            bought.item.name + "」（レア度" + bought.item.rarity +
+            "）を手に入れた。\n" + bought.item.description;
+        } else {
+          message =
+            "市場で買い物をしたが、買えるもの（レア度" +
+            SHOPPING_MAX_RARITY + "以下）は、もうすべて持っている。";
+        }
+      } else {
+        message = "「" + option.label + "」を選んだ。（効果は未実装）";
+      }
+
+      addLog(day + "日目：" + message.split("\n")[0]);
+
+      document.getElementById("marketPrompt").hidden = true;
+      document.getElementById("marketOptions").hidden = true;
+
+      const resultBox = document.getElementById("marketResult");
+      resultBox.textContent = message;
+      resultBox.hidden = false;
+
+      document.getElementById("finishMarketButton").hidden = false;
+    }
+
+    // 「営業準備へ進む」ボタンの処理（市場から営業準備へ）
+    function finishMarket() {
+      if (phase !== "market") return;
+
+      phase = "preparation";
+      updateMenuPreview();
+      updatePreparationState();
+      updateStatus();
+    }
+
+    function updateStatus() {
+      document.getElementById("day").textContent = day;
+      document.getElementById("money").textContent = money;
+      document.getElementById("reputation").textContent = reputation;
+
+      const phaseNames = {
+        morning: "朝の行動",
+        cooking: "酒場で仕込み",
+        market: "市場",
+        preparation: "営業準備",
+        tavern: "酒場の営業"
+      };
+
+      document.getElementById("phase").textContent = phaseNames[phase];
+      document.getElementById("morningSection").hidden = phase !== "morning";
+      document.getElementById("cookingSection").hidden = phase !== "cooking";
+      document.getElementById("marketSection").hidden = phase !== "market";
+      document.getElementById("preparationSection").hidden =
+        phase !== "preparation";
+      document.getElementById("tavernSection").hidden = phase !== "tavern";
+
+      if (phase === "morning") {
+        renderMorningActions();
+      }
+    }
+
+    function addLog(message) {
+      const log = document.getElementById("log");
+      log.textContent += "\n" + message;
+    }
+
+    // 営業準備の画面に、赤字でメッセージを出す
+    function showPrepMessage(message) {
+      const el = document.getElementById("prepMessage");
+      el.textContent = message;
+      el.hidden = false;
+    }
+
+    function clearPrepMessage() {
+      const el = document.getElementById("prepMessage");
+      el.textContent = "";
+      el.hidden = true;
+    }
+
+    // 営業準備の画面を開いたときの準備
+    // 手持ちの料理が1つもないときは、営業できないので、その旨を出して、営業せずに終えるボタンを出す
+    function updatePreparationState() {
+      const hasDish = getOwnedDishes().length > 0;
+
+      document.getElementById("openTavernButton").disabled = !hasDish;
+      document.getElementById("skipDayButton").hidden = hasDish;
+
+      if (hasDish) {
+        clearPrepMessage();
+      } else {
+        showPrepMessage(
+          "手持ちの料理がないので、営業できません。" +
+          "（朝の行動で「酒場で仕込みをする」を選ぶと、料理を作れます）"
+        );
+      }
+    }
+
+    // 手持ちの料理がない日に、営業せずに1日を終える
+    function skipDay() {
+      if (phase !== "preparation") return;
+      if (getOwnedDishes().length > 0) return;
+
+      addLog(day + "日目：料理がなかったので、営業せずに1日を終えた。");
+
+      day++;
+      phase = "morning";
+      handledCount = 0;
+      currentAdventurerIndex = 0;
+
+      document.getElementById("morningResult").textContent =
+        "今日の行動を選んでください。";
+
+      clearPrepMessage();
+
+      addLog(day + "日目：新しい朝を迎えました。");
+      updateStatus();
+    }
+
+    // 朝の行動を選んだときの処理
+    // 「酒場で仕込みをする」は仕込みの画面、「市場に行く」は市場の画面、
+    // それ以外は営業準備へ進む
+    function morning(action) {
+      if (phase !== "morning") return;
+
+      document.getElementById("morningResult").textContent =
+        "「" + action.label + "」を選びました。";
+
+      // 今は、どの行動も同じ効果（あとで行動ごとに変えられる）
+      money += 100;
+      reputation += 1;
+
+      addLog(
+        day + "日目：朝の行動「" + action.label +
+        "」。所持金 +100G、評判 +1。"
+      );
+
+      if (action.type === "cook") {
+        phase = "cooking";
+        updateCookingScreen();
+      } else if (action.type === "market") {
+        phase = "market";
+        resetMarketScreen();
+      } else {
+        phase = "preparation";
+        updateMenuPreview();
+        updatePreparationState();
+      }
+
+      updateStatus();
+    }
+
+    function getMenu() {
+      return {
+        dish: getSelectedDish(),
+        drink: getSelectedDrink()
+      };
+    }
+
+    function menuToText(menu) {
+      const dishText = menu.dish ? dishToText(menu.dish) : "（料理が未選択）";
+      const drinkText = menu.drink ? drinkToText(menu.drink) : "（飲み物が未選択）";
+
+      return "料理\n" + dishText + "\n\n" +
+        "飲み物\n" + drinkText;
+    }
+
+    function updateMenuPreview() {
+      const dish = getSelectedDish();
+      const drink = getSelectedDrink();
+
+      document.getElementById("dishDetail").textContent =
+        dish ? dishToText(dish) : "手持ちの料理がありません。";
+
+      document.getElementById("drinkDetail").textContent =
+        drink ? drinkToText(drink) : "飲み物を選んでください。";
+
+      document.getElementById("menuPreview").textContent =
+        menuToText(getMenu());
+    }
+
+    // 冒険者が来店したときの処理
+    // 1. 料理と酒を別々に評価し、それぞれ注文するか・好物かを決める
+    // 2. 料理か酒のどちらかについて、まだ分からない評価を1項目話してくれる
+    // 3. どちらかを注文した場合は「話しかける」ボタン、どちらも注文しなかった場合は会話なしで次へ
+    function showAdventurer(index) {
+      const adventurer = adventurers[index];
+      const evaluation = evaluateMenu(adventurer, todaysMenu);
+
+      document.getElementById("adventurerCard" + index).hidden = false;
+
+      // 好みの調査
+      const hints = [];
+      for (let i = 0; i < HINT_COUNT; i++) {
+        const hint = discoverPreference(adventurer, todaysMenu, evaluation);
+
+        if (hint === null) break;
+        hints.push(hint);
+      }
+
+      let reactionText =
+        "【料理と酒の反応】\n" +
+        adventurer.name + buildReactionLine(evaluation);
+
+      if (hints.length > 0) {
+        reactionText += "\n\n" + hints.map(function(hint) {
+          return adventurer.name + "「" + hint.text + "」\n→ " + hint.summary;
+        }).join("\n\n");
+      }
+
+      const reaction = document.getElementById("reaction" + index);
+      reaction.textContent = reactionText;
+      reaction.hidden = false;
+
+      // 判明した好みを、冒険者の情報に反映する
+      renderAdventurerInfo(
+        adventurer,
+        document.getElementById("info" + index)
+      );
+
+      const talkButton = document.getElementById("talkButton" + index);
+      const nextButton = document.getElementById("nextButton" + index);
+
+      if (evaluation.canTalk) {
+        // 注文した：話しかけるボタンを出す
+        talkButton.hidden = false;
+        talkButton.disabled = false;
+        talkButton.textContent = "話しかける";
+        nextButton.hidden = true;
+      } else {
+        // 注文しなかった：この冒険者の対応はここで終わり
+        talkButton.hidden = true;
+        handledCount++;
+        updateHandledCount();
+
+        nextButton.textContent =
+          handledCount === adventurers.length
+            ? "全員の対応を終える"
+            : "次の冒険者へ";
+        nextButton.hidden = false;
+      }
+
+      addLog(
+        day + "日目：" + adventurer.name +
+        "が来店。（テスト表示）料理の平均：" +
+        evaluation.dishAverage.toFixed(2) + "（" +
+        getItemStateLabel(evaluation.dishOrdered, evaluation.dishFavorite) +
+        "）、酒の平均：" +
+        evaluation.drinkAverage.toFixed(2) + "（" +
+        getItemStateLabel(evaluation.drinkOrdered, evaluation.drinkFavorite) +
+        "）。" +
+        (evaluation.canTalk
+          ? "会話できる。情報収集：" +
+            evaluation.advances.map(function(n) { return n + "段階"; }).join("・")
+          : "会話なし。")
+      );
+
+      hints.forEach(function(hint) {
+        addLog(
+          day + "日目：" + adventurer.name +
+          "の好みの調査：" + hint.summary
+        );
+      });
+    }
+
+    function openTavern() {
+      clearPrepMessage();
+
+      try {
+        if (phase !== "preparation") {
+          showPrepMessage(
+            "営業準備の段階ではないため、営業を始められません。現在の段階：" + phase
+          );
+          return;
+        }
+
+        if (adventurers.length === 0) {
+          showPrepMessage("冒険者データが読み込まれていません。");
+          return;
+        }
+
+        const menu = getMenu();
+
+        if (!menu.dish) {
+          showPrepMessage(
+            "手持ちの料理がありません。朝の行動で「酒場で仕込みをする」を選ぶと、料理を作れます。"
+          );
+          return;
+        }
+
+        if (!menu.drink) {
+          showPrepMessage(
+            "飲み物が選べません。手持ちの飲み物数：" + getOwnedDrinks().length +
+            "、飲み物データ数：" + drinks.length
+          );
+          return;
+        }
+
+        todaysMenu = menu;
+        phase = "tavern";
+        handledCount = 0;
+        currentAdventurerIndex = 0;
+
+        // 全員のカードを初期状態に戻す
+        adventurers.forEach(function(adventurer, index) {
+          document.getElementById("adventurerCard" + index).hidden = true;
+
+          const reaction = document.getElementById("reaction" + index);
+          reaction.hidden = true;
+          reaction.textContent = "";
+
+          const button = document.getElementById("talkButton" + index);
+          button.hidden = true;
+          button.disabled = false;
+          button.textContent = "話しかける";
+
+          const dialogue = document.getElementById("dialogue" + index);
+          dialogue.hidden = true;
+          dialogue.textContent = "";
+
+          document.getElementById("nextButton" + index).hidden = true;
+        });
+
+        document.getElementById("tavernResult").textContent =
+          day + "日目の酒場を営業しています。";
+
+        document.getElementById("activeMenu").textContent =
+          menuToText(todaysMenu);
+
+        updateHandledCount();
+
+        document.getElementById("allTalkedMessage").hidden = true;
+        document.getElementById("endDayButton").disabled = true;
+        document.getElementById("endDayButton").textContent =
+          "1日を終える（全員の対応後）";
+
+        addLog(
+          day + "日目：酒場の営業を開始。料理「" +
+          todaysMenu.dish.name + "」、飲み物「" +
+          todaysMenu.drink.name + "」。"
+        );
+
+        // 画面を営業中に切り替えてから、最初の冒険者を迎える
+        updateStatus();
+        showAdventurer(0);
+      } catch (error) {
+        console.error(error);
+        showPrepMessage("営業開始でエラーが起きました：" + error.message);
+      }
+    }
+
+    // まだ確定していない（3段階に達していない）情報項目の一覧
+    function getAvailableFields(adventurer) {
+      return abilityFields.concat(personalityFields).filter(function(field) {
+        return knowledge[adventurer.id][field.key] < 3;
+      });
+    }
+
+    // 情報項目を amount 段階だけ進める
+    // 確定（3段階）より先には進まない。性格（勇敢さ・判断傾向）は段階に関係なく1回で確定する
+    function advanceField(adventurer, field, amount) {
+      const isAbility = field.key in adventurer.abilities;
+      const before = knowledge[adventurer.id][field.key];
+
+      let after = 3;
+      if (isAbility) {
+        after = Math.min(3, before + amount);
+      }
+
+      knowledge[adventurer.id][field.key] = after;
+
+      // 情報を更新した直後に保存
+      saveKnowledge();
+
+      if (!isAbility) {
+        const valueName = field.values[getFieldValue(adventurer, field)];
+        return field.label + "は「" + valueName + "」だと確定した。";
+      }
+
+      const display = getFieldDisplay(adventurer, field);
+
+      if (after === 1) {
+        return field.label + "について、" + display +
+          "くらいの力がありそうだと分かった。";
+      }
+
+      if (after === 2) {
+        return field.label + "について、" +
+          (before === 0 ? "詳しく話を聞いた。" : "さらに話を聞いた。") +
+          "推定値が " + display + " に絞られた。";
+      }
+
+      return field.label + "の正確な能力値が " + display + " と判明した。";
+    }
+
+    // advances（例：[1, 2]）の数だけ、別々の情報項目を、それぞれの段階ぶん進める
+    function discoverByAdvances(adventurer, advances) {
+      const messages = [];
+      const available = getAvailableFields(adventurer);
+
+      // 進められる項目が足りないときは、大きい段階を優先して使う
+      const amounts = advances.slice();
+      if (available.length < amounts.length) {
+        amounts.sort(function(a, b) { return b - a; });
+      }
+
+      amounts.forEach(function(amount) {
+        if (available.length === 0) return;
+
+        const pickedIndex = Math.floor(Math.random() * available.length);
+        const field = available[pickedIndex];
+        available.splice(pickedIndex, 1);
+
+        messages.push(advanceField(adventurer, field, amount));
+      });
+
+      if (messages.length === 0) {
+        messages.push("この冒険者について、能力と性格の情報はすべて判明している。");
+      }
+
+      return messages;
+    }
+
+    function talkTo(index) {
+      if (phase !== "tavern") return;
+      if (index !== currentAdventurerIndex) return;
+
+      const adventurer = adventurers[index];
+      if (!adventurer) return;
+
+      const button = document.getElementById("talkButton" + index);
+      if (button.disabled || button.hidden) return;
+
+      // 念のため、注文したかを再確認する
+      const evaluation = evaluateMenu(adventurer, todaysMenu);
+      if (!evaluation.canTalk) return;
+
+      button.disabled = true;
+      button.textContent = "会話済み";
+
+      const messages = discoverByAdvances(adventurer, evaluation.advances);
+
+      const dialogue = document.getElementById("dialogue" + index);
+      dialogue.textContent =
+        adventurer.dialogue +
+        "\n\n【会話から得た情報】\n" +
+        messages.join("\n");
+      dialogue.hidden = false;
+
+      renderAdventurerInfo(
+        adventurer,
+        document.getElementById("info" + index)
+      );
+
+      handledCount++;
+      updateHandledCount();
+
+      const nextButton = document.getElementById("nextButton" + index);
+      nextButton.textContent =
+        handledCount === adventurers.length
+          ? "全員の対応を終える"
+          : "次の冒険者へ";
+      nextButton.hidden = false;
+
+      addLog(
+        day + "日目：" + adventurer.name +
+        "と会話。情報収集：「" + messages.join(" / ") + "」"
+      );
+    }
+
+    function nextAdventurer(index) {
+      if (phase !== "tavern") return;
+      if (index !== currentAdventurerIndex) return;
+      if (handledCount <= index) return;
+
+      document.getElementById("adventurerCard" + index).hidden = true;
+
+      if (handledCount >= adventurers.length) {
+        document.getElementById("allTalkedMessage").hidden = false;
+        document.getElementById("endDayButton").disabled = false;
+        document.getElementById("endDayButton").textContent = "1日を終える";
+
+        addLog(day + "日目：全員への対応が終了。");
+        return;
+      }
+
+      currentAdventurerIndex++;
+      showAdventurer(currentAdventurerIndex);
+    }
+
+    function endDay() {
+      if (phase !== "tavern") return;
+      if (handledCount < adventurers.length) return;
+      if (document.getElementById("endDayButton").disabled) return;
+
+      addLog(day + "日目：営業を終了。");
+
+      day++;
+      phase = "morning";
+      handledCount = 0;
+      currentAdventurerIndex = 0;
+
+      document.getElementById("morningResult").textContent =
+        "今日の行動を選んでください。";
+
+      addLog(day + "日目：新しい朝を迎えました。");
+      updateStatus();
+    }
+
+    // 営業開始ボタン（onclick属性ではなく、ここで登録する）
+    document.getElementById("openTavernButton").addEventListener(
+      "click",
+      openTavern
+    );
+
+    // 営業せずに1日を終えるボタン
+    document.getElementById("skipDayButton").addEventListener(
+      "click",
+      skipDay
+    );
+
+    // 料理を作るボタン・仕込みを終えるボタン
+    document.getElementById("cookButton").addEventListener(
+      "click",
+      cookDish
+    );
+
+    document.getElementById("finishCookingButton").addEventListener(
+      "click",
+      finishCooking
+    );
+
+    // 同じ名前の料理ができたときの、選択ボタン
+    document.getElementById("keepOldDishButton").addEventListener(
+      "click",
+      function() { resolveDishChoice(false); }
+    );
+
+    document.getElementById("keepNewDishButton").addEventListener(
+      "click",
+      function() { resolveDishChoice(true); }
+    );
+
+    // 市場から営業準備へ進むボタン
+    document.getElementById("finishMarketButton").addEventListener(
+      "click",
+      finishMarket
+    );
+
+    // 食材・調味料を選び直したときに、説明を更新する
+    ["ingredientSelect", "seasoningSelect"].forEach(function(id) {
+      document.getElementById(id).addEventListener(
+        "change",
+        updateCookDetails
+      );
+    });
+
+    const menuInputs = [
+      "dishSelect",
+      "drinkSelect"
+    ];
+
+    menuInputs.forEach(function(id) {
+      document.getElementById(id).addEventListener(
+        "change",
+        updateMenuPreview
+      );
+    });
+
+    async function initGame() {
+      try {
+        await loadAdventurers();
+        await loadIngredients();
+        await loadSeasonings();
+        await loadDishes();
+
+        // 保存してある、作った料理を手持ちに加える
+        loadGeneratedDishes();
+
+        await loadDrinks();
+
+        // 持っている食材・調味料を用意する
+        initOwnedItems();
+
+        renderAdventurers();
+        renderIngredientSelect();
+        renderSeasoningSelect();
+        updateCookDetails();
+        updateMenuPreview();
+        updateStatus();
+        addLog(
+          "データを読み込みました。（冒険者" + adventurers.length +
+          "人、食材" + ingredients.length +
+          "種、調味料" + seasonings.length +
+          "種、飲み物" + drinks.length + "種）"
+        );
+        addLog(
+          "持っている食材：" + ownedIngredientIds.length +
+          "種、調味料：" + ownedSeasoningIds.length +
+          "種、料理：" + getOwnedDishes().length + "品。"
+        );
+
+        dataWarnings.forEach(function(warning) {
+          addLog("【データ警告】" + warning);
+        });
+
+        const savedCount = Object.values(knowledge).reduce(
+          function(total, adventurerData) {
+            return total + Object.values(adventurerData).filter(
+              function(stage) {
+                return typeof stage === "number" && stage > 0;
+              }
+            ).length;
+          },
+          0
+        );
+
+        if (savedCount > 0) {
+          addLog("前回までの調査情報を復元しました。");
+        }
+      } catch (error) {
+        document.getElementById("phase").textContent =
+          "データ読み込みエラー";
+
+        document.getElementById("loadError").hidden = false;
+        document.getElementById("loadErrorMessage").textContent =
+          error.message;
+
+        document.getElementById("morningSection").hidden = true;
+        document.getElementById("cookingSection").hidden = true;
+        document.getElementById("marketSection").hidden = true;
+        document.getElementById("preparationSection").hidden = true;
+        document.getElementById("tavernSection").hidden = true;
+
+        addLog("エラー：" + error.message);
+      }
+    }
+
+    initGame();
+  </script>
+</body>
+</html>
