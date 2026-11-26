@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>酒場経営ゲーム 試作品0.30</title>
+  <title>酒場経営ゲーム 試作品0.31</title>
   <style>
     body {
       font-family: sans-serif;
@@ -66,6 +66,7 @@
       padding: 12px;
       margin: 12px 0;
     }
+    .cook-box h3 { margin-top: 0; }
     .market-option {
       margin: 14px 0;
     }
@@ -77,6 +78,11 @@
     }
     .owned-summary {
       font-size: 13px;
+      color: #79552b;
+    }
+    .loan-group-label {
+      margin: 10px 0 2px;
+      font-weight: bold;
       color: #79552b;
     }
 
@@ -211,12 +217,13 @@
   <p id="fatalError" class="error" hidden></p>
 
   <h1>酒場経営ゲーム</h1>
-  <p>試作品 0.30</p>
+  <p>試作品 0.31</p>
 
   <section>
     <h2>酒場の状態</h2>
     <p>日数：<span id="day">1</span>日目</p>
     <p>所持金：<span id="money">1000</span> G</p>
+    <p>借金：<span id="debt">0</span> G</p>
     <p>評判：<span id="reputation">0</span></p>
     <p>現在の段階：<span id="phase" class="status">読み込み中</span></p>
     <p id="saveStatus" class="save-status">調査情報の保存機能が有効です。</p>
@@ -279,6 +286,22 @@
     <button id="finishMarketButton" type="button" hidden>営業準備へ進む</button>
   </section>
 
+  <section id="commerceSection" hidden>
+    <h2>商会</h2>
+    <p id="commercePrompt">商会で何をしますか？</p>
+    <div id="commerceOptions"></div>
+
+    <div id="loanPanel" class="cook-box" hidden>
+      <h3>融資の相談</h3>
+      <div id="loanStatus" class="info-box"></div>
+      <div id="loanButtons"></div>
+      <p id="loanMessage" class="owned-summary"></p>
+    </div>
+
+    <div id="commerceResult" class="menu-box" hidden></div>
+    <button id="finishCommerceButton" type="button" hidden>営業準備へ進む</button>
+  </section>
+
   <section id="preparationSection" hidden>
     <h2>営業準備</h2>
     <p>今日のお客に出す料理と飲み物を決めましょう。</p>
@@ -331,7 +354,7 @@
     let reputation = 0;
 
     // 現在の段階
-    // morning：朝の行動 ／ cooking：酒場で仕込み ／ market：市場
+    // morning：朝の行動 ／ cooking：酒場で仕込み ／ market：市場 ／ commerce：商会
     // preparation：営業準備 ／ tavern：酒場の営業
     let phase = "morning";
     let todaysMenu = {};
@@ -400,6 +423,23 @@
     // 市場の「買い物をする」で入手できる食材・調味料のレア度の上限
     const SHOPPING_MAX_RARITY = 3;
 
+    // ===== 商会の設定 =====
+    // 「食材を仕入れる」で手に入る食材のレア度の範囲（この範囲の、まだ持っていない食材から1つ）
+    const PURCHASE_MIN_RARITY = 2;
+    const PURCHASE_MAX_RARITY = 4;
+
+    // 最初の借金（仮の数字）
+    const INITIAL_DEBT = 3000;
+
+    // 借金の上限（これを超える借入はできない。仮の数字）
+    const LOAN_MAX_DEBT = 10000;
+
+    // 借りる・返済するときに選べる金額
+    const LOAN_AMOUNTS = [500, 1000];
+
+    // 今の借金（所持金と同じく、ページを再読み込みすると最初に戻る）
+    let debt = INITIAL_DEBT;
+
     // ===== 食材・調味料のファイルの設定 =====
     // 食材：ファイル名と、そのファイルの食材が決める「食材の種類」
     const INGREDIENT_FILES = [
@@ -457,12 +497,12 @@
     };
 
     // ===== 朝の行動の設定 =====
-    // type：cook（酒場で仕込み）、market（市場）、normal（それ以外）
+    // type：cook（酒場で仕込み）、market（市場）、commerce（商会）、normal（それ以外）
     // 毎日選べる行動（不要なものは、その行を消す）
     const MORNING_ACTIONS = [
       { label: "酒場で仕込みをする", type: "cook" },
       { label: "市場に行く", type: "market" },
-      { label: "商会に行く", type: "normal" },
+      { label: "商会に行く", type: "commerce" },
       { label: "広場に行く", type: "normal" },
       { label: "開拓本部に行く", type: "normal" }
     ];
@@ -473,7 +513,7 @@
     ];
 
     // 市場で選べる行動
-    // 「買い物をする」は効果あり。それ以外は、今は選択肢を出すだけで、効果は未実装
+    // 「店の宣伝をする」は、今は選択肢を出すだけで、効果は未実装
     const MARKET_OPTIONS = [
       {
         id: "shopping",
@@ -482,8 +522,8 @@
       },
       {
         id: "gossip",
-        label: "世間話をする",
-        description: "ランダムな冒険者1人の情報が1つ得られる"
+        label: "世間話を聞く",
+        description: "ランダムな冒険者の情報が1つ分かる（酒場で話を聞くのと同じ効果）"
       },
       {
         id: "advertise",
@@ -491,6 +531,144 @@
         description: "宣伝の効果を発揮する（例：肉に力を入れていると宣伝すれば、一定の間、肉好きな冒険者が来店しやすくなる）"
       }
     ];
+
+    // 商会で選べる行動
+    // 「酒を仕入れる」「情報を買う」は、今は選択肢を出すだけで、効果は未実装
+    const COMMERCE_OPTIONS = [
+      {
+        id: "buyIngredient",
+        label: "食材を仕入れる",
+        description: "少しレアな食材が手に入る（レア度" +
+          PURCHASE_MIN_RARITY + "〜" + PURCHASE_MAX_RARITY + "）"
+      },
+      {
+        id: "buyDrink",
+        label: "酒を仕入れる",
+        description: "条件を満たした酒が購入できる（条件が未定のため、今は選択肢だけ）"
+      },
+      {
+        id: "buyInfo",
+        label: "情報を買う",
+        description: "（今は選択肢だけ）"
+      },
+      {
+        id: "loan",
+        label: "融資の相談",
+        description: "借金の返済か、追加の借入を行う"
+      }
+    ];
+
+    // ===== 世間話のセリフ =====
+    // {n}：冒険者の名前、{t}：話題（例：あっさりした料理）
+    // 好みの評価ごとに、言い回しを複数用意して、ランダムに選ぶ
+    const GOSSIP_PREFERENCE_TEXTS = {
+      love: [
+        "{n}は{t}が大好物らしいぜ。",
+        "{n}は{t}に目がないと聞いたぞ。"
+      ],
+      like: [
+        "{n}は{t}が好きと聞いたぞ。",
+        "{n}は{t}が好みらしいな。"
+      ],
+      neutral: [
+        "{n}は{t}には、こだわりがないらしい。"
+      ],
+      dislike: [
+        "{n}は{t}があまり好きじゃないらしいぜ。"
+      ],
+      hate: [
+        "{n}は{t}が大の苦手だと聞いたぞ。",
+        "{n}の前で{t}の話はしないほうがいいぜ。"
+      ]
+    };
+
+    // 世間話の話題の言い方（ここにない値は、値の名前をそのまま使う）
+    const GOSSIP_TOPIC_TEXTS = {
+      dish: {
+        richness: {
+          "こってり": "こってりした料理",
+          "濃いめ": "濃いめの味の料理",
+          "普通": "普通の濃さの料理",
+          "あっさり": "あっさりした料理"
+        },
+        cooking: {
+          "焼き物": "焼き物",
+          "汁物": "汁物",
+          "煮込み": "煮込み料理",
+          "生": "生の料理"
+        },
+        style: {
+          "豪快": "豪快な料理",
+          "精緻": "精緻な料理",
+          "素朴": "素朴な料理",
+          "前衛的": "前衛的な料理"
+        }
+      },
+      drink: {
+        type: {
+          "麦": "麦の酒",
+          "米": "米の酒",
+          "果実": "果実の酒",
+          "その他": "変わり種の酒"
+        },
+        alcohol: {
+          "高": "強い酒",
+          "普通": "ほどほどの強さの酒",
+          "低": "軽い酒",
+          "なし": "酒の入っていない飲み物"
+        },
+        smell: {
+          "芳醇": "芳醇な香りの酒",
+          "穏やか": "穏やかな香りの酒",
+          "軽快": "軽快な香りの酒",
+          "繊細": "繊細な香りの酒"
+        },
+        mouthfeel: {
+          "キレ": "キレのある酒",
+          "コク": "コクのある酒",
+          "ツヤ": "ツヤのある口当たりの酒",
+          "ピュア": "ピュアな口当たりの酒"
+        }
+      }
+    };
+
+    // 世間話で、能力が分かるときのセリフ（値が高い high、ふつう mid、低い low）
+    const GOSSIP_ABILITY_TEXTS = {
+      stamina: {
+        high: "{n}は、なかなかへこたれないタフな奴だぜ。",
+        mid: "{n}の体力は、人並みってところだな。",
+        low: "{n}は、すぐに息が上がっちまうらしい。"
+      },
+      magic: {
+        high: "{n}は、物覚えが早いと評判だぞ。",
+        mid: "{n}の理解力は、人並みだな。",
+        low: "{n}は、難しい話は苦手らしいぜ。"
+      },
+      speed: {
+        high: "{n}の動きは俊敏だったぞ。",
+        mid: "{n}の足は、普通ってところだな。",
+        low: "{n}は、動きがのんびりしてるな。"
+      },
+      experience: {
+        high: "{n}は、場数を踏んだ手練れだぜ。",
+        mid: "{n}は、そこそこ経験を積んでるな。",
+        low: "{n}は、まだまだこれからの奴だな。"
+      }
+    };
+
+    // 世間話で、性格が分かるときのセリフ
+    const GOSSIP_PERSONALITY_TEXTS = {
+      bravery: {
+        brave: "{n}は、怖いもの知らずの勇敢な奴だ。",
+        normal: "{n}は、勇敢でも臆病でもない、普通の奴だな。",
+        cautious: "{n}は、石橋を叩いて渡る慎重派だぜ。"
+      },
+      judgment: {
+        intuition: "{n}は、直感でパッと決めるタイプだな。",
+        normal: "{n}の判断は、普通ってところだ。",
+        deliberation: "{n}は、じっくり考え込んでから動くタイプだぜ。"
+      }
+    };
 
     // ===== 好みの評価の設定 =====
     // 評価点（冒険者データ adventurers.json には、この数字を書く）
@@ -844,6 +1022,30 @@
         ownedSeasoningIds.push(picked.item.id);
       }
 
+      saveOwnedItems();
+
+      return picked;
+    }
+
+    // 商会の「食材を仕入れる」：まだ持っていない、レア度が
+    // PURCHASE_MIN_RARITY 以上 PURCHASE_MAX_RARITY 以下の食材から、ランダムに1つ手に入れる
+    // 手に入れた食材を返す（仕入れられるものがなければ null）
+    function buyRareIngredient() {
+      const candidates = ingredients.filter(function(item) {
+        return (
+          item.rarity >= PURCHASE_MIN_RARITY &&
+          item.rarity <= PURCHASE_MAX_RARITY &&
+          !ownedIngredientIds.includes(item.id)
+        );
+      });
+
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      const picked = pickRandom(candidates);
+
+      ownedIngredientIds.push(picked.id);
       saveOwnedItems();
 
       return picked;
@@ -2643,6 +2845,8 @@
       });
     }
 
+    // ===== 市場 =====
+
     // 市場の画面を開いたときの準備（選択肢を出し、結果の表示は隠す）
     function resetMarketScreen() {
       renderMarketOptions();
@@ -2678,9 +2882,144 @@
       });
     }
 
+    // 世間話で話題にできる、冒険者の「まだ分かっていない情報」を、種類ごとに集める
+    //   ability：能力、personality：性格、preference：料理・酒の好み（値ごと）
+    function listGossipCandidates(adventurer) {
+      const candidates = { ability: [], personality: [], preference: [] };
+
+      abilityFields.forEach(function(field) {
+        if (knowledge[adventurer.id][field.key] < 3) {
+          candidates.ability.push({ type: "ability", field: field });
+        }
+      });
+
+      personalityFields.forEach(function(field) {
+        if (knowledge[adventurer.id][field.key] < 3) {
+          candidates.personality.push({ type: "personality", field: field });
+        }
+      });
+
+      PREF_CATEGORY_NAMES.forEach(function(category) {
+        const info = PREF_CATEGORIES[category];
+
+        Object.keys(info.values).forEach(function(key) {
+          info.values[key].forEach(function(value) {
+            if (knowledge[adventurer.id][info.storeKey][key][value] === null) {
+              candidates.preference.push({
+                type: "preference",
+                category: category,
+                key: key,
+                value: value
+              });
+            }
+          });
+        });
+      });
+
+      return candidates;
+    }
+
+    // 世間話の相手と話題を、ランダムに1つ選ぶ
+    // まだ分かっていない情報が残っている冒険者の中から選び、
+    // 情報の種類（能力・性格・好み）を先に選んでから、その中の1つを選ぶ
+    // どの冒険者にも話題が残っていなければ null
+    function pickGossip() {
+      const shuffled = adventurers.slice().sort(function() {
+        return Math.random() - 0.5;
+      });
+
+      for (const adventurer of shuffled) {
+        const candidates = listGossipCandidates(adventurer);
+
+        const types = Object.keys(candidates).filter(function(type) {
+          return candidates[type].length > 0;
+        });
+
+        if (types.length === 0) continue;
+
+        const type = pickRandom(types);
+
+        return {
+          adventurer: adventurer,
+          item: pickRandom(candidates[type])
+        };
+      }
+
+      return null;
+    }
+
+    // 好みの値の評価点に合わせた、世間話のセリフを作る
+    function buildGossipPreferenceText(adventurer, item, rating) {
+      const topicMap =
+        GOSSIP_TOPIC_TEXTS[item.category] &&
+        GOSSIP_TOPIC_TEXTS[item.category][item.key];
+
+      const topic = (topicMap && topicMap[item.value]) || item.value;
+      const tier = RATING_TIERS[String(rating)];
+
+      return pickRandom(GOSSIP_PREFERENCE_TEXTS[tier])
+        .split("{n}").join(adventurer.name)
+        .split("{t}").join(topic);
+    }
+
+    // 能力の値の高さを、high / mid / low に分ける
+    function getAbilityBand(value) {
+      if (value >= 8) return "high";
+      if (value <= 3) return "low";
+      return "mid";
+    }
+
+    // 世間話を1つ聞いて、情報を判明させる。話の内容を返す
+    function listenToGossip() {
+      const picked = pickGossip();
+
+      if (picked === null) {
+        return "市場で世間話を聞いたが、新しい話は聞けなかった。（どの冒険者の情報も、すべて分かっている）";
+      }
+
+      const adventurer = picked.adventurer;
+      const item = picked.item;
+
+      let talk = "";
+      let result = "";
+
+      if (item.type === "preference") {
+        const info = PREF_CATEGORIES[item.category];
+        const rating = adventurer.preferences[item.category][item.key][item.value];
+
+        knowledge[adventurer.id][info.storeKey][item.key][item.value] = rating;
+        saveKnowledge();
+
+        talk = buildGossipPreferenceText(adventurer, item, rating);
+        result =
+          info.prefix + info.labels[item.key] + "「" + item.value +
+          "」は" + getRatingLabel(rating) + "（" + rating + "）だと分かった。";
+      } else if (item.type === "ability") {
+        const value = adventurer.abilities[item.field.key];
+        const band = getAbilityBand(value);
+
+        talk = GOSSIP_ABILITY_TEXTS[item.field.key][band]
+          .split("{n}").join(adventurer.name);
+
+        // 酒場で話を聞くのと同じ効果（1段階進む）
+        result = advanceField(adventurer, item.field, STAGE_ADVANCE_NORMAL);
+      } else {
+        const value = adventurer.personality[item.field.key];
+
+        talk = GOSSIP_PERSONALITY_TEXTS[item.field.key][value]
+          .split("{n}").join(adventurer.name);
+
+        // 酒場で話を聞くのと同じ効果（性格は1回で確定する）
+        result = advanceField(adventurer, item.field, STAGE_ADVANCE_NORMAL);
+      }
+
+      return "市場で世間話を聞いた。\n「" + talk + "」\n→ " + result;
+    }
+
     // 市場で行動を選んだときの処理
     // 「買い物をする」は、食材か調味料を1つ入手する。
-    // それ以外は、今は選択肢を出すだけで、効果は未実装
+    // 「世間話を聞く」は、ランダムな冒険者の情報が1つ分かる。
+    // 「店の宣伝をする」は、今は選択肢を出すだけで、効果は未実装
     function chooseMarketOption(option) {
       if (phase !== "market") return;
 
@@ -2699,11 +3038,13 @@
             "市場で買い物をしたが、買えるもの（レア度" +
             SHOPPING_MAX_RARITY + "以下）は、もうすべて持っている。";
         }
+      } else if (option.id === "gossip") {
+        message = listenToGossip();
       } else {
         message = "「" + option.label + "」を選んだ。（効果は未実装）";
       }
 
-      addLog(day + "日目：" + message.split("\n")[0]);
+      addLog(day + "日目：" + message.replace(/\n/g, " "));
 
       document.getElementById("marketPrompt").hidden = true;
       document.getElementById("marketOptions").hidden = true;
@@ -2725,15 +3066,219 @@
       updateStatus();
     }
 
+    // ===== 商会 =====
+
+    // 商会の画面を開いたときの準備（選択肢を出し、結果と融資の画面は隠す）
+    function resetCommerceScreen() {
+      renderCommerceOptions();
+
+      document.getElementById("commercePrompt").hidden = false;
+      document.getElementById("commerceOptions").hidden = false;
+      document.getElementById("loanPanel").hidden = true;
+      document.getElementById("commerceResult").hidden = true;
+      document.getElementById("finishCommerceButton").hidden = true;
+    }
+
+    // 商会で選べる行動のボタンを作る（説明つき）
+    function renderCommerceOptions() {
+      const container = document.getElementById("commerceOptions");
+      container.replaceChildren();
+
+      COMMERCE_OPTIONS.forEach(function(option) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "market-option";
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = option.label;
+        button.addEventListener("click", function() {
+          chooseCommerceOption(option);
+        });
+
+        const description = document.createElement("p");
+        description.textContent = option.description;
+
+        wrapper.appendChild(button);
+        wrapper.appendChild(description);
+        container.appendChild(wrapper);
+      });
+    }
+
+    // 商会で行動を選んだときの処理
+    // 「食材を仕入れる」と「融資の相談」は効果あり。
+    // 「酒を仕入れる」「情報を買う」は、今は選択肢を出すだけで、効果は未実装
+    function chooseCommerceOption(option) {
+      if (phase !== "commerce") return;
+
+      // 融資の相談は、専用の画面を開く
+      if (option.id === "loan") {
+        openLoanPanel();
+        return;
+      }
+
+      let message = "";
+
+      if (option.id === "buyIngredient") {
+        const bought = buyRareIngredient();
+
+        if (bought) {
+          message =
+            "商会で食材「" + bought.name + "」（レア度" + bought.rarity +
+            "）を仕入れた。\n" + bought.description;
+        } else {
+          message =
+            "商会に行ったが、仕入れられる食材（レア度" +
+            PURCHASE_MIN_RARITY + "〜" + PURCHASE_MAX_RARITY +
+            "）は、もうすべて持っている。";
+        }
+      } else if (option.id === "buyDrink") {
+        message =
+          "「" + option.label + "」を選んだ。（購入できる条件が未定のため、効果は未実装）";
+      } else {
+        message = "「" + option.label + "」を選んだ。（効果は未実装）";
+      }
+
+      addLog(day + "日目：" + message.replace(/\n/g, " "));
+
+      document.getElementById("commercePrompt").hidden = true;
+      document.getElementById("commerceOptions").hidden = true;
+
+      const resultBox = document.getElementById("commerceResult");
+      resultBox.textContent = message;
+      resultBox.hidden = false;
+
+      document.getElementById("finishCommerceButton").hidden = false;
+    }
+
+    // 融資の相談の画面を開く
+    function openLoanPanel() {
+      addLog(day + "日目：商会で「融資の相談」をした。");
+
+      document.getElementById("commercePrompt").hidden = true;
+      document.getElementById("commerceOptions").hidden = true;
+      document.getElementById("loanMessage").textContent = "";
+      document.getElementById("loanPanel").hidden = false;
+      document.getElementById("finishCommerceButton").hidden = false;
+
+      renderLoanPanel();
+    }
+
+    // 融資の画面の、今の所持金・借金と、押せるボタンを作り直す
+    function renderLoanPanel() {
+      document.getElementById("loanStatus").textContent =
+        "所持金：" + money + " G\n借金：" + debt + " G\n（借金の上限：" +
+        LOAN_MAX_DEBT + " G）";
+
+      const container = document.getElementById("loanButtons");
+      container.replaceChildren();
+
+      // 追加で借りる
+      const borrowLabel = document.createElement("p");
+      borrowLabel.className = "loan-group-label";
+      borrowLabel.textContent = "追加で借りる";
+      container.appendChild(borrowLabel);
+
+      LOAN_AMOUNTS.forEach(function(amount) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = amount + " G借りる";
+        button.disabled = debt + amount > LOAN_MAX_DEBT;
+        button.addEventListener("click", function() {
+          borrowMoney(amount);
+        });
+        container.appendChild(button);
+      });
+
+      // 返済する
+      const repayLabel = document.createElement("p");
+      repayLabel.className = "loan-group-label";
+      repayLabel.textContent = "返済する";
+      container.appendChild(repayLabel);
+
+      LOAN_AMOUNTS.forEach(function(amount) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = amount + " G返済する";
+        button.disabled = money < amount || debt < amount;
+        button.addEventListener("click", function() {
+          repayMoney(amount);
+        });
+        container.appendChild(button);
+      });
+
+      const allButton = document.createElement("button");
+      allButton.type = "button";
+      allButton.textContent = "全額返済する（" + debt + " G）";
+      allButton.disabled = debt === 0 || money < debt;
+      allButton.addEventListener("click", function() {
+        repayMoney(debt);
+      });
+      container.appendChild(allButton);
+    }
+
+    // 追加で借りる
+    function borrowMoney(amount) {
+      if (phase !== "commerce") return;
+
+      if (debt + amount > LOAN_MAX_DEBT) {
+        document.getElementById("loanMessage").textContent =
+          "借金の上限（" + LOAN_MAX_DEBT + " G）を超えるので、借りられません。";
+        return;
+      }
+
+      money += amount;
+      debt += amount;
+
+      const message = amount + " G借りた。";
+      document.getElementById("loanMessage").textContent = message;
+      addLog(day + "日目：" + message + "（所持金 " + money + " G、借金 " + debt + " G）");
+
+      updateStatus();
+      renderLoanPanel();
+    }
+
+    // 借金を返済する
+    function repayMoney(amount) {
+      if (phase !== "commerce") return;
+
+      if (amount <= 0 || amount > debt || amount > money) {
+        document.getElementById("loanMessage").textContent =
+          "その金額は、返済できません。";
+        return;
+      }
+
+      money -= amount;
+      debt -= amount;
+
+      const message = amount + " G返済した。";
+      document.getElementById("loanMessage").textContent = message;
+      addLog(day + "日目：" + message + "（所持金 " + money + " G、借金 " + debt + " G）");
+
+      updateStatus();
+      renderLoanPanel();
+    }
+
+    // 「営業準備へ進む」ボタンの処理（商会から営業準備へ）
+    function finishCommerce() {
+      if (phase !== "commerce") return;
+
+      phase = "preparation";
+      updateMenuPreview();
+      updatePreparationState();
+      updateStatus();
+    }
+
     function updateStatus() {
       document.getElementById("day").textContent = day;
       document.getElementById("money").textContent = money;
+      document.getElementById("debt").textContent = debt;
       document.getElementById("reputation").textContent = reputation;
 
       const phaseNames = {
         morning: "朝の行動",
         cooking: "酒場で仕込み",
         market: "市場",
+        commerce: "商会",
         preparation: "営業準備",
         tavern: "酒場の営業"
       };
@@ -2742,6 +3287,7 @@
       document.getElementById("morningSection").hidden = phase !== "morning";
       document.getElementById("cookingSection").hidden = phase !== "cooking";
       document.getElementById("marketSection").hidden = phase !== "market";
+      document.getElementById("commerceSection").hidden = phase !== "commerce";
       document.getElementById("preparationSection").hidden =
         phase !== "preparation";
       document.getElementById("tavernSection").hidden = phase !== "tavern";
@@ -2810,7 +3356,7 @@
 
     // 朝の行動を選んだときの処理
     // 「酒場で仕込みをする」は仕込みの画面、「市場に行く」は市場の画面、
-    // それ以外は営業準備へ進む
+    // 「商会に行く」は商会の画面、それ以外は営業準備へ進む
     function morning(action) {
       if (phase !== "morning") return;
 
@@ -2832,6 +3378,9 @@
       } else if (action.type === "market") {
         phase = "market";
         resetMarketScreen();
+      } else if (action.type === "commerce") {
+        phase = "commerce";
+        resetCommerceScreen();
       } else {
         phase = "preparation";
         updateMenuPreview();
@@ -3232,10 +3781,15 @@
       function() { resolveDishChoice(true); }
     );
 
-    // 市場から営業準備へ進むボタン
+    // 市場・商会から営業準備へ進むボタン
     document.getElementById("finishMarketButton").addEventListener(
       "click",
       finishMarket
+    );
+
+    document.getElementById("finishCommerceButton").addEventListener(
+      "click",
+      finishCommerce
     );
 
     // 食材・調味料を選び直したときに、説明を更新する
@@ -3320,6 +3874,7 @@
         document.getElementById("morningSection").hidden = true;
         document.getElementById("cookingSection").hidden = true;
         document.getElementById("marketSection").hidden = true;
+        document.getElementById("commerceSection").hidden = true;
         document.getElementById("preparationSection").hidden = true;
         document.getElementById("tavernSection").hidden = true;
 
